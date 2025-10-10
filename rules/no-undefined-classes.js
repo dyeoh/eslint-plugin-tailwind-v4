@@ -38,8 +38,8 @@ module.exports = {
 
   create(context) {
     const options = context.options[0] || {};
-    const { 
-      cssFile = 'src/styles/globals.css', 
+    const {
+      cssFile = 'src/styles/globals.css',
       allowArbitraryValues = true,
       debug = false
     } = options;
@@ -48,30 +48,33 @@ module.exports = {
     let customClasses = new Set();
     let hasTailwindImport = false;
     let cssLoaded = false;
+    let foundThemeVariables = new Set(); // Track theme variables
 
     function loadAllCSSClasses() {
       if (cssLoaded) return;
 
       const projectRoot = context.getCwd();
       const cssPath = path.resolve(projectRoot, cssFile);
-      
+
       if (debug) {
         console.log(`🔍 Loading CSS from: ${cssPath}`);
       }
-      
+
       // Parse all CSS imports recursively
       parseCSSImports(cssPath, projectRoot);
-      
+
       // Custom classes are added directly during parsing
       customClasses.forEach(cls => validClasses.add(cls));
-      
+
       if (debug) {
         console.log(`✅ Tailwind import detected: ${hasTailwindImport}`);
         console.log(`✅ Custom classes found: ${customClasses.size}`);
         console.log(`✅ Total valid classes: ${validClasses.size}`);
+        console.log(`✅ Theme variables found: ${foundThemeVariables.size}`);
         console.log(`🔍 Sample custom classes: ${Array.from(customClasses).slice(0, 15).join(', ')}`);
+        console.log(`🔍 Sample theme variables: ${Array.from(foundThemeVariables).slice(0, 10).join(', ')}`);
       }
-      
+
       cssLoaded = true;
     }
 
@@ -91,33 +94,52 @@ module.exports = {
 
         try {
           const cssContent = fs.readFileSync(currentPath, 'utf8');
-          
+
           if (debug) {
             console.log(`📁 Parsing: ${path.relative(projectRoot, currentPath)}`);
           }
-          
-          // Detect Tailwind import
-          if (cssContent.includes('@import "tailwindcss"')) {
+
+          // Enhanced Tailwind import detection (v4)
+          if (cssContent.includes('@import "tailwindcss"') ||
+            cssContent.includes('@import \'tailwindcss\'') ||
+            cssContent.includes('@import url("tailwindcss")') ||
+            cssContent.includes('@import url(\'tailwindcss\')') ||
+            cssContent.includes('@tailwind base') ||
+            cssContent.includes('@tailwind components') ||
+            cssContent.includes('@tailwind utilities')) {
             hasTailwindImport = true;
             if (debug) console.log('✅ Found Tailwind import');
           }
-          
+
           // Extract theme variables and custom classes from this file
           extractCustomClasses(cssContent, currentPath, projectRoot);
-          
+
           // Follow @import statements for custom files
           const importRegex = /@import\s+["']([^"']+)["'];?/g;
           let match;
-          
+
           while ((match = importRegex.exec(cssContent)) !== null) {
             const importPath = match[1];
-            
+
             // Skip the tailwindcss import
             if (importPath === 'tailwindcss') continue;
-            
+
             // Handle relative imports
             if (importPath.startsWith('./') || importPath.startsWith('../')) {
-              const fullPath = path.resolve(path.dirname(currentPath), importPath);
+              let fullPath = path.resolve(path.dirname(currentPath), importPath);
+
+              // Add file extension check for CSS files
+              if (!path.extname(fullPath)) {
+                const possibleExtensions = ['.css', '.scss', '.sass', '.less'];
+                for (const ext of possibleExtensions) {
+                  const pathWithExt = fullPath + ext;
+                  if (fs.existsSync(pathWithExt)) {
+                    fullPath = pathWithExt;
+                    break;
+                  }
+                }
+              }
+
               if (fs.existsSync(fullPath)) {
                 cssQueue.push(fullPath);
                 if (debug) {
@@ -138,18 +160,18 @@ module.exports = {
       let classesFound = 0;
       const fileName = path.basename(filePath);
       const explicitClasses = new Set();
-      
+
       // FIRST: Extract explicit utility classes: .text-button { ... }
       // These take precedence over auto-generated theme utilities
       const utilityRegex = /\.([a-zA-Z][\w-]*)\s*\{/g;
       let match;
-      
+
       while ((match = utilityRegex.exec(cssContent)) !== null) {
         const className = match[1];
         explicitClasses.add(className);
         customClasses.add(className);
         classesFound++;
-        
+
         if (debug && (className.includes('button') || className.includes('tag') || className.includes('dropdown') || className.includes('markdown'))) {
           console.log(`🎯 Found explicit class in ${fileName}: .${className}`);
         }
@@ -158,21 +180,24 @@ module.exports = {
       // SECOND: Extract @theme variables and generate utilities (excluding overridden ones)
       const themeBlockRegex = /@theme\s*\{([^}]+)\}/gs;
       let themeMatch;
-      
+
       while ((themeMatch = themeBlockRegex.exec(cssContent)) !== null) {
         const themeContent = themeMatch[1];
-        
+
         if (debug) {
           console.log(`🎨 Found @theme block in ${fileName}`);
         }
-        
+
         // Extract all CSS custom properties: --anything-name: value;
         const variableRegex = /--([a-zA-Z][\w-]*)\s*:/g;
         let varMatch;
-        
+
         while ((varMatch = variableRegex.exec(themeContent)) !== null) {
           const fullVarName = varMatch[1];
-          
+
+          // Track this theme variable
+          foundThemeVariables.add(fullVarName);
+
           // Generate utilities from this variable, but check for explicit overrides
           const generatedCount = generateUtilitiesFromVariable(fullVarName, fileName, explicitClasses);
           classesFound += generatedCount;
@@ -184,9 +209,36 @@ module.exports = {
       while ((match = utilityDefRegex.exec(cssContent)) !== null) {
         customClasses.add(match[1]);
         classesFound++;
-        
+
         if (debug) {
           console.log(`🔧 Found @utility in ${fileName}: ${match[1]}`);
+        }
+      }
+
+      // FOURTH: Extract @layer definitions (Tailwind v4)
+      const layerRegex = /@layer\s+(base|components|utilities)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/gs;
+      let layerMatch;
+
+      while ((layerMatch = layerRegex.exec(cssContent)) !== null) {
+        const layerType = layerMatch[1];
+        const layerContent = layerMatch[2];
+
+        if (debug) {
+          console.log(`🏗️ Found @layer ${layerType} in ${fileName}`);
+        }
+
+        // Extract utility classes from layer content
+        const layerUtilityRegex = /\.([a-zA-Z][\w-]*)\s*\{/g;
+        let layerUtilityMatch;
+
+        while ((layerUtilityMatch = layerUtilityRegex.exec(layerContent)) !== null) {
+          const className = layerUtilityMatch[1];
+          customClasses.add(className);
+          classesFound++;
+
+          if (debug) {
+            console.log(`🎯 Found @layer utility in ${fileName}: .${className}`);
+          }
         }
       }
 
@@ -197,7 +249,7 @@ module.exports = {
 
     function generateUtilitiesFromVariable(varName, fileName, explicitClasses) {
       let generatedCount = 0;
-      
+
       // Colors: --color-dark-grey, --color-primary-black
       if (varName.startsWith('color-')) {
         const colorName = varName.substring(6); // Remove 'color-'
@@ -215,7 +267,7 @@ module.exports = {
           `fill-${colorName}`,
           `stroke-${colorName}`,
         ];
-        
+
         colorUtilities.forEach(cls => {
           // Only add if not explicitly overridden
           if (!explicitClasses.has(cls)) {
@@ -225,21 +277,21 @@ module.exports = {
             console.log(`⚠️  Skipping auto-generated ${cls} - explicitly defined in ${fileName}`);
           }
         });
-        
+
         if (debug) {
           console.log(`🎨 Generated ${generatedCount} color utilities for: ${colorName} (from ${fileName})`);
         }
       }
-      
+
       // Animations: --animate-fade-in, --animate-slide-up
       else if (varName.startsWith('animate-')) {
         const animationName = varName.substring(8); // Remove 'animate-'
         const animationUtility = `animate-${animationName}`;
-        
+
         if (!explicitClasses.has(animationUtility)) {
           customClasses.add(animationUtility);
           generatedCount++;
-          
+
           if (debug) {
             console.log(`🎬 Generated animation utility: ${animationUtility} (from ${fileName})`);
           }
@@ -247,16 +299,16 @@ module.exports = {
           console.log(`⚠️  Skipping auto-generated ${animationUtility} - explicitly defined in ${fileName}`);
         }
       }
-      
+
       // Shadows: --shadow-sm, --shadow-elevation-1
       else if (varName.startsWith('shadow-')) {
         const shadowName = varName.substring(7); // Remove 'shadow-'
         const shadowUtility = `shadow-${shadowName}`;
-        
+
         if (!explicitClasses.has(shadowUtility)) {
           customClasses.add(shadowUtility);
           generatedCount++;
-          
+
           if (debug) {
             console.log(`🌫️ Generated shadow utility: shadow-${shadowName} (from ${fileName})`);
           }
@@ -264,16 +316,16 @@ module.exports = {
           console.log(`⚠️  Skipping auto-generated ${shadowUtility} - explicitly defined in ${fileName}`);
         }
       }
-      
+
       // Border radius: --radius-sm, --radius-card
       else if (varName.startsWith('radius-')) {
         const radiusName = varName.substring(7); // Remove 'radius-'
         const radiusUtility = `rounded-${radiusName}`;
-        
+
         if (!explicitClasses.has(radiusUtility)) {
           customClasses.add(radiusUtility);
           generatedCount++;
-          
+
           if (debug) {
             console.log(`🔘 Generated radius utility: rounded-${radiusName} (from ${fileName})`);
           }
@@ -281,11 +333,11 @@ module.exports = {
           console.log(`⚠️  Skipping auto-generated ${radiusUtility} - explicitly defined in ${fileName}`);
         }
       }
-      
+
       // Spacing: --spacing-xs, --spacing-section
       else if (varName.startsWith('spacing-')) {
         const spacingName = varName.substring(8); // Remove 'spacing-'
-        
+
         // Spacing generates multiple utilities
         const spacingPrefixes = ['p', 'm', 'px', 'py', 'pt', 'pr', 'pb', 'pl', 'mx', 'my', 'mt', 'mr', 'mb', 'ml', 'gap', 'space-x', 'space-y'];
         spacingPrefixes.forEach(prefix => {
@@ -295,22 +347,22 @@ module.exports = {
             generatedCount++;
           }
         });
-        
+
         if (debug) {
           console.log(`📏 Generated spacing utilities: p-${spacingName}, m-${spacingName}, gap-${spacingName}, etc. (from ${fileName})`);
         }
       }
-      
+
       // Typography sizes: --text-title, --text-body, --text-button
       else if (varName.startsWith('text-')) {
         const textName = varName.substring(5); // Remove 'text-'
         const textUtility = `text-${textName}`;
-        
+
         // Only add if not explicitly overridden
         if (!explicitClasses.has(textUtility)) {
           customClasses.add(textUtility);
           generatedCount++;
-          
+
           if (debug) {
             console.log(`📝 Generated text utility: ${textUtility} (from ${fileName})`);
           }
@@ -318,16 +370,16 @@ module.exports = {
           console.log(`⚠️  Skipping auto-generated ${textUtility} - explicitly defined in ${fileName}`);
         }
       }
-      
+
       // Font families: --font-family-inter
       else if (varName.startsWith('font-family-')) {
         const familyName = varName.substring(12); // Remove 'font-family-'
         const fontUtility = `font-${familyName}`;
-        
+
         if (!explicitClasses.has(fontUtility)) {
           customClasses.add(fontUtility);
           generatedCount++;
-          
+
           if (debug) {
             console.log(`🔤 Generated font family utility: ${fontUtility} (from ${fileName})`);
           }
@@ -335,16 +387,16 @@ module.exports = {
           console.log(`⚠️  Skipping auto-generated ${fontUtility} - explicitly defined in ${fileName}`);
         }
       }
-      
+
       // Font weights: --font-weight-semi-bold
       else if (varName.startsWith('font-weight-')) {
         const weightName = varName.substring(12); // Remove 'font-weight-'
         const weightUtility = `font-${weightName}`;
-        
+
         if (!explicitClasses.has(weightUtility)) {
           customClasses.add(weightUtility);
           generatedCount++;
-          
+
           if (debug) {
             console.log(`⚖️ Generated font weight utility: font-${weightName} (from ${fileName})`);
           }
@@ -352,16 +404,16 @@ module.exports = {
           console.log(`⚠️  Skipping auto-generated ${weightUtility} - explicitly defined in ${fileName}`);
         }
       }
-      
+
       // Font sizes: --font-size-sm, --font-size-lg
       else if (varName.startsWith('font-size-')) {
         const sizeName = varName.substring(10); // Remove 'font-size-'
         const sizeUtility = `text-${sizeName}`;
-        
+
         if (!explicitClasses.has(sizeUtility)) {
           customClasses.add(sizeUtility);
           generatedCount++;
-          
+
           if (debug) {
             console.log(`📏 Generated font size utility: ${sizeUtility} (from ${fileName})`);
           }
@@ -369,29 +421,109 @@ module.exports = {
           console.log(`⚠️  Skipping auto-generated ${sizeUtility} - explicitly defined in ${fileName}`);
         }
       }
-      
+
       return generatedCount;
     }
 
+    function hasThemeVariable(varName) {
+      return foundThemeVariables.has(varName);
+    }
+
+    function isOverridableUtility(className) {
+      // These are utilities that can be overridden by @theme variables
+      const overridablePatterns = [
+        /^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/, // Typography sizes
+        /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/, // Font weights
+        /^font-(sans|serif|mono)$/, // Font families
+        /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/, // Default colors
+        /^(p|m|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml)-(\d+\.?\d*|px)$/, // Spacing
+        /^gap(-x|-y)?-(\d+\.?\d*|px)$/, // Gap
+        /^space-(x|y)-(\d+\.?\d*|px)$/, // Space
+        /^rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/, // Border radius
+        /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?$/, // Shadows
+        /^animate-(none|spin|ping|pulse|bounce)$/, // Animations
+      ];
+
+      return overridablePatterns.some(pattern => pattern.test(className));
+    }
+
+    function hasThemeOverride(className) {
+      // Check if we found any theme variables that would generate this utility
+
+      // For text sizes: text-xs would be overridden by --font-size-xs or --text-xs
+      if (/^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/.test(className)) {
+        const size = className.replace('text-', '');
+        return hasThemeVariable(`font-size-${size}`) || hasThemeVariable(`text-${size}`);
+      }
+
+      // For font weights: font-bold would be overridden by --font-weight-bold
+      if (/^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/.test(className)) {
+        const weight = className.replace('font-', '');
+        return hasThemeVariable(`font-weight-${weight}`);
+      }
+
+      // For colors: text-red-500 would be overridden by --color-red-500
+      const colorMatch = className.match(/^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/);
+      if (colorMatch) {
+        const [, , colorName, shade] = colorMatch;
+        return hasThemeVariable(`color-${colorName}-${shade}`);
+      }
+
+      // For spacing: p-4, m-2, etc. would be overridden by --spacing-4, --spacing-2
+      const spacingMatch = className.match(/^(p|m|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml)-(\d+\.?\d*|px)$/);
+      if (spacingMatch) {
+        const [, , size] = spacingMatch;
+        return hasThemeVariable(`spacing-${size}`);
+      }
+
+      // For border radius: rounded-lg would be overridden by --radius-lg
+      const radiusMatch = className.match(/^rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/);
+      if (radiusMatch) {
+        const radius = radiusMatch[1] ? radiusMatch[1].replace('-', '') : 'DEFAULT';
+        return hasThemeVariable(`radius-${radius}`);
+      }
+
+      // For shadows: shadow-lg would be overridden by --shadow-lg
+      const shadowMatch = className.match(/^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?$/);
+      if (shadowMatch) {
+        const shadow = shadowMatch[1] ? shadowMatch[1].replace('-', '') : 'DEFAULT';
+        return hasThemeVariable(`shadow-${shadow}`);
+      }
+
+      return false;
+    }
+
     function isTailwindUtility(className) {
-      // Check against comprehensive Tailwind patterns for utilities not in our hardcoded list
+      // Enhanced Tailwind v4 patterns
       const tailwindPatterns = [
+        // Container Queries (Tailwind v4)
+        /^@(xs|sm|md|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl)\/(.+)$/,
+        /^@container-(.+)\/(.+)$/,
+
         // Layout patterns
         /^(container|block|inline-block|inline|flex|inline-flex|table|inline-table|table-caption|table-cell|table-column|table-column-group|table-footer-group|table-header-group|table-row-group|table-row|flow-root|grid|inline-grid|contents|list-item|hidden)$/,
         /^flex-(row|col|wrap|nowrap|1|auto|initial|none)(-reverse)?$/,
         /^(grow|grow-0|shrink|shrink-0)$/,
         /^(items|justify|content|self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
         /^(place-content|place-items|place-self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
-        
+
+        // Logical Properties (Tailwind v4)
+        /^(m|p)(s|e|is|ie|bs|be)-(\d+\.?\d*|px|auto)$/,
+        /^border-(s|e|is|ie|bs|be)(-\d+)?$/,
+        /^rounded-(s|e|ss|se|ee|es)(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
+
         // Spacing patterns
         /^(p|m|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml)-(\d+\.?\d*|px|auto)$/,
         /^gap(-x|-y)?-(\d+\.?\d*|px)$/,
         /^space-(x|y)-(\d+\.?\d*|px|reverse)$/,
-        
-        // Sizing patterns
+
+        // Enhanced Sizing patterns (Tailwind v4)
+        /^(w|h)-(dvh|lvh|svh|dvw|lvw|svw)$/,
+        /^(min-w|min-h|max-w|max-h)-(0|none|full|min|max|fit|prose|screen-(sm|md|lg|xl|2xl))$/,
+        /^size-(\d+\.?\d*|px|auto|full|screen|min|max|fit)$/,
         /^(w|h|min-w|min-h|max-w|max-h)-(0|px|\d+\.?\d*|auto|full|screen|min|max|fit)$/,
         /^(w|h)-(\d+\/\d+)$/,
-        
+
         // Typography patterns
         /^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/,
         /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/,
@@ -409,12 +541,14 @@ module.exports = {
         /^whitespace-(normal|nowrap|pre|pre-line|pre-wrap|break-spaces)$/,
         /^(break-normal|break-words|break-all|break-keep)$/,
         /^hyphens-(none|manual|auto)$/,
-        
-        // Color patterns - Tailwind's default color palette
+
+        // Enhanced Color patterns (Tailwind v4)
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(inherit|current|transparent|black|white)$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
+        /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)(-\d+)?\/\d+$/,
+        /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(current|transparent|inherit)\/\d+$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)-(\d+)\/(\d+)$/, // opacity variants
-        
+
         // Background patterns
         /^bg-(fixed|local|scroll)$/,
         /^bg-(auto|cover|contain)$/,
@@ -422,7 +556,7 @@ module.exports = {
         /^bg-(repeat|no-repeat|repeat-x|repeat-y|repeat-round|repeat-space)$/,
         /^bg-origin-(border|padding|content)$/,
         /^bg-clip-(border|padding|content|text)$/,
-        
+
         // Border patterns
         /^border(-\d+|-x|-y|-s|-e|-t|-r|-b|-l)?$/,
         /^border-(solid|dashed|dotted|double|hidden|none)$/,
@@ -432,30 +566,30 @@ module.exports = {
         /^outline-offset-\d+$/,
         /^ring(-\d+|-inset)?$/,
         /^ring-offset-\d+$/,
-        
+
         // Border radius patterns
         /^rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
         /^rounded-(s|e|t|r|b|l|ss|se|ee|es|tl|tr|br|bl)(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
-        
+
         // Effects patterns
         /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?$/,
         /^shadow-\w+-(\d+)(\/\d+)?$/,
         /^opacity-(\d+)$/,
         /^mix-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity|plus-darker|plus-lighter)$/,
         /^bg-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity)$/,
-        
+
         // Filter patterns
         /^(blur|brightness|contrast|drop-shadow|grayscale|hue-rotate|invert|saturate|sepia)(-none|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
         /^backdrop-(blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia)(-none|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
-        
+
         // Table patterns
         /^(border-collapse|border-separate)$/,
         /^(table-auto|table-fixed)$/,
         /^caption-(top|bottom)$/,
-        
+
         // Animation patterns
         /^animate-(none|spin|ping|pulse|bounce)$/,
-        
+
         // Transform patterns
         /^(transform|transform-cpu|transform-gpu|transform-none)$/,
         /^scale(-\d+|-x-\d+|-y-\d+)?$/,
@@ -463,30 +597,30 @@ module.exports = {
         /^translate-(x|y)-(\d+\.?\d*|px|full)$/,
         /^skew-(x|y)-(\d+)$/,
         /^origin-(center|top|top-right|right|bottom-right|bottom|bottom-left|left|top-left)$/,
-        
+
         // Transition patterns
         /^transition(-none|-all|-colors|-opacity|-shadow|-transform)?$/,
         /^duration-(\d+)$/,
         /^delay-(\d+)$/,
         /^ease-(linear|in|out|in-out)$/,
-        
+
         // Position patterns
         /^(static|fixed|absolute|relative|sticky)$/,
         /^(inset|inset-x|inset-y|top|right|bottom|left)-(\d+\.?\d*|px|auto|full)$/,
         /^z-(\d+|auto)$/,
-        
+
         // Overflow patterns
         /^(overflow|overflow-x|overflow-y)-(auto|hidden|clip|visible|scroll)$/,
         /^(overscroll|overscroll-x|overscroll-y)-(auto|contain|none)$/,
-        
+
         // Visibility patterns
         /^(visible|invisible|collapse)$/,
         /^(isolate|isolation-auto)$/,
-        
+
         // Object patterns
         /^object-(contain|cover|fill|none|scale-down)$/,
         /^object-(bottom|center|left|left-bottom|left-top|right|right-bottom|right-top|top)$/,
-        
+
         // Interactivity patterns
         /^(appearance-none|appearance-auto)$/,
         /^cursor-(auto|default|pointer|wait|text|move|help|not-allowed|none|context-menu|progress|cell|crosshair|vertical-text|alias|copy|no-drop|grab|grabbing|all-scroll|col-resize|row-resize|n-resize|e-resize|s-resize|w-resize|ne-resize|nw-resize|se-resize|sw-resize|ew-resize|ns-resize|nesw-resize|nwse-resize|zoom-in|zoom-out)$/,
@@ -500,14 +634,14 @@ module.exports = {
         /^touch-(auto|none|pan-x|pan-left|pan-right|pan-y|pan-up|pan-down|pinch-zoom|manipulation)$/,
         /^select-(none|text|all|auto)$/,
         /^will-change-(auto|scroll|contents|transform)$/,
-        
+
         // SVG patterns
         /^fill-(none|current|\w+-\d+)$/,
         /^stroke-(none|current|\w+-\d+|\d+)$/,
-        
+
         // Accessibility patterns
         /^(sr-only|not-sr-only)$/,
-        
+
         // Grid patterns
         /^grid-cols-(none|\d+|subgrid)$/,
         /^col-(auto|span-\d+|span-full|start-\d+|start-auto|end-\d+|end-auto)$/,
@@ -515,37 +649,54 @@ module.exports = {
         /^row-(auto|span-\d+|span-full|start-\d+|start-auto|end-\d+|end-auto)$/,
         /^grid-flow-(row|col|dense|row-dense|col-dense)$/,
         /^auto-(cols|rows)-(auto|min|max|fr)$/,
-        
+
         // List patterns
         /^list-(none|disc|decimal)$/,
         /^list-(inside|outside)$/,
         /^marker-\w+-(\d+)$/,
-        
+
         // Pseudo-class prefixes (for validation of base classes)
         /^(hover|focus|focus-within|focus-visible|active|visited|target|first|last|only|odd|even|first-of-type|last-of-type|only-of-type|empty|disabled|enabled|checked|indeterminate|default|required|valid|invalid|in-range|out-of-range|placeholder-shown|autofill|read-only):/,
-        
-        // State prefixes
-        /^(group-hover|group-focus|group-active|peer-hover|peer-focus|peer-active):/,
-        
+
+        // Enhanced State prefixes (Tailwind v4)
+        /^(group-hover|group-focus|group-active|group-focus-within|group-focus-visible|peer-hover|peer-focus|peer-active|peer-focus-within|peer-focus-visible):/,
+
         // Responsive prefixes
         /^(sm|md|lg|xl|2xl):/,
-        
-        // Dark mode
-        /^dark:/,
-        
-        // Data attributes
-        /^data-\[.*?\]:/,
-        
+
+        // Enhanced Mode prefixes (Tailwind v4)
+        /^(dark|light):/,
+
+        // New Preference queries (Tailwind v4)
+        /^(motion-safe|motion-reduce|contrast-more|contrast-less):/,
+
+        // Orientation queries (Tailwind v4)
+        /^(portrait|landscape):/,
+
+        // Print media query (Tailwind v4)
+        /^print:/,
+
+        // Feature queries (Tailwind v4)
+        /^supports-\[.*?\]:/,
+
+        // Data and ARIA attributes
+        /^(data-\[.*?\]|aria-\[.*?\]):/,
+
         // Complex selectors
         /^\[&.*?\]:/,
         /^\[.*?\]$/,
       ];
-      
+
       return tailwindPatterns.some(pattern => pattern.test(className));
     }
 
     function isArbitraryValue(className) {
-      return /\[.+\]/.test(className) && !/^\[&.*?\]:/.test(className);
+      // Enhanced arbitrary value detection for v4
+      return /\[.+\]/.test(className) &&
+        !/^\[&.*?\]:/.test(className) &&
+        !/^data-\[.*?\]:/.test(className) &&
+        !/^aria-\[.*?\]:/.test(className) &&
+        !/^supports-\[.*?\]:/.test(className);
     }
 
     function getBaseClass(className) {
@@ -556,10 +707,14 @@ module.exports = {
         'only-of-type:', 'empty:', 'disabled:', 'enabled:', 'checked:', 'indeterminate:',
         'default:', 'required:', 'valid:', 'invalid:', 'in-range:', 'out-of-range:',
         'placeholder-shown:', 'autofill:', 'read-only:',
-        'group-hover:', 'group-focus:', 'group-active:',
-        'peer-hover:', 'peer-focus:', 'peer-active:',
-        'dark:',
-        'data-\\[.*?\\]:',
+        'group-hover:', 'group-focus:', 'group-active:', 'group-focus-within:', 'group-focus-visible:',
+        'peer-hover:', 'peer-focus:', 'peer-active:', 'peer-focus-within:', 'peer-focus-visible:',
+        'dark:', 'light:', // Enhanced mode support
+        'motion-safe:', 'motion-reduce:', 'contrast-more:', 'contrast-less:', // New preference queries
+        'portrait:', 'landscape:', // Orientation queries
+        'print:', // Print media query
+        'supports-\\[.*?\\]:', // Feature queries
+        'data-\\[.*?\\]:', 'aria-\\[.*?\\]:',
         '\\[&.*?\\]:',
       ];
 
@@ -581,13 +736,20 @@ module.exports = {
         return true;
       }
 
-      // Check exact match in our collected classes
+      // FIRST: Check if it's in our custom classes (highest priority)
       if (validClasses.has(className)) {
         return true;
       }
 
-      // If Tailwind is imported, check against Tailwind patterns
+      // SECOND: Only allow Tailwind built-in utilities if Tailwind is imported
+      // AND the class is not something that could be overridden by custom CSS
       if (hasTailwindImport && isTailwindUtility(className)) {
+        // Check if this is a utility that could be overridden by theme variables
+        if (isOverridableUtility(className)) {
+          // Only allow if we haven't found any theme variables that would override it
+          return !hasThemeOverride(className);
+        }
+        // For non-overridable utilities (like flex, block, etc.), always allow
         return true;
       }
 
@@ -598,6 +760,9 @@ module.exports = {
           return true;
         }
         if (hasTailwindImport && isTailwindUtility(baseClass)) {
+          if (isOverridableUtility(baseClass)) {
+            return !hasThemeOverride(baseClass);
+          }
           return true;
         }
       }
@@ -609,7 +774,7 @@ module.exports = {
       if (node.type === 'Literal' && typeof node.value === 'string') {
         return node.value.split(/\s+/).filter(cls => cls.length > 0);
       }
-      
+
       if (node.type === 'TemplateLiteral') {
         let classString = '';
         for (let i = 0; i < node.quasis.length; i++) {
@@ -651,8 +816,8 @@ module.exports = {
       CallExpression(node) {
         const fnNames = ['cn', 'clsx', 'cva', 'tw'];
         const isCnCall = fnNames.includes(node.callee.name) ||
-          (node.callee.type === 'MemberExpression' && 
-           fnNames.includes(node.callee.property?.name));
+          (node.callee.type === 'MemberExpression' &&
+            fnNames.includes(node.callee.property?.name));
 
         if (isCnCall) {
           node.arguments.forEach(arg => {
