@@ -111,8 +111,8 @@ module.exports = {
           // Extract custom classes and theme variables
           extractCustomClasses(cssContent, currentPath, projectRoot);
 
-          // Queue additional CSS imports
-          queueCSSImports(cssContent, currentPath, projectRoot);
+          // Queue additional CSS imports (FIXED: Now properly adds to the processing queue)
+          queueCSSImports(cssContent, currentPath, projectRoot, cssQueue, visited);
 
         } catch (error) {
           if (debug) console.warn(`Error reading ${currentPath}:`, error.message);
@@ -137,9 +137,8 @@ module.exports = {
       }
     }
 
-    function queueCSSImports(cssContent, currentPath, projectRoot) {
+    function queueCSSImports(cssContent, currentPath, projectRoot, cssQueue, visited) {
       const importRegex = /@import\s+["']([^"']+)["'];?/g;
-      const cssQueue = [];
       let match;
 
       while ((match = importRegex.exec(cssContent)) !== null) {
@@ -164,18 +163,16 @@ module.exports = {
             }
           }
 
-          if (fs.existsSync(fullPath)) {
+          if (fs.existsSync(fullPath) && !visited.has(fullPath)) {
             cssQueue.push(fullPath);
             if (debug) {
               console.log(`📄 Queued import: ${path.relative(projectRoot, fullPath)}`);
             }
-          } else {
-            if (debug) console.warn(`Import not found: ${fullPath}`);
+          } else if (!fs.existsSync(fullPath) && debug) {
+            console.warn(`Import not found: ${fullPath}`);
           }
         }
       }
-
-      return cssQueue;
     }
 
     // =============================================================================
@@ -268,7 +265,8 @@ module.exports = {
     }
 
     function extractLayerDefinitions(cssContent, fileName) {
-      const layerRegex = /@layer\s+(base|components|utilities)\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/gs;
+      // Updated regex to handle nested braces properly
+      const layerRegex = /@layer\s+(base|components|utilities)\s*\{((?:[^{}]*\{[^{}]*\}[^{}]*)*[^{}]*)\}/gs;
       let layerMatch;
       let count = 0;
 
@@ -278,6 +276,7 @@ module.exports = {
 
         if (debug) {
           console.log(`🏗️ Found @layer ${layerType} in ${fileName}`);
+          console.log(`📝 Layer content preview: ${layerContent.substring(0, 100)}...`);
         }
 
         const layerUtilityRegex = /\.([a-zA-Z][\w-]*)\s*\{/g;
@@ -544,7 +543,7 @@ module.exports = {
         /^gap(-x|-y)?-(\d+\.?\d*|px)$/,
         /^space-(x|y)-(\d+\.?\d*|px)$/,
         /^rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
-        /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?$/,
+        /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-inner)?$/,
         /^animate-(none|spin|ping|pulse|bounce)$/,
       ];
 
@@ -688,7 +687,7 @@ module.exports = {
         /^rounded-(s|e|t|r|b|l|ss|se|ee|es|tl|tr|br|bl)(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
 
         // Effects
-        /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?$/,
+        /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-inner)?$/,
         /^shadow-\w+-(\d+)(\/\d+)?$/,
         /^opacity-(\d+)$/,
         /^mix-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity|plus-darker|plus-lighter)$/,
