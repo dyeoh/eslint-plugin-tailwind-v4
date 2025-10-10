@@ -490,7 +490,7 @@ module.exports = {
       }
 
       // For shadows: shadow-lg would be overridden by --shadow-lg
-      const shadowMatch = className.match(/^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?$/);
+      const shadowMatch = className.match(/^shadow(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-inner)?$/);
       if (shadowMatch) {
         const shadow = shadowMatch[1] ? shadowMatch[1].replace('-', '') : 'DEFAULT';
         return hasThemeVariable(`shadow-${shadow}`);
@@ -509,7 +509,7 @@ module.exports = {
         // Layout patterns
         /^(container|block|inline-block|inline|flex|inline-flex|table|inline-table|table-caption|table-cell|table-column|table-column-group|table-footer-group|table-header-group|table-row-group|table-row|flow-root|grid|inline-grid|contents|list-item|hidden)$/,
         
-        // Group and Peer utilities (MISSING - this was the issue!)
+        // Group and Peer utilities
         /^(group|peer)$/,
         /^group\/[\w-]+$/,  // Named groups: group/sidebar
         /^peer\/[\w-]+$/,   // Named peers: peer/checkbox
@@ -551,9 +551,13 @@ module.exports = {
         /^tracking-(tighter|tight|normal|wide|wider|widest)$/,
         /^indent-(\d+\.?\d*|px)$/,
         /^(align-baseline|align-top|align-middle|align-bottom|align-text-top|align-text-bottom|align-super|align-sub)$/,
+        
+        // Enhanced text and whitespace patterns (FIXED - added text-nowrap and others)
+        /^text-(wrap|nowrap|balance|pretty)$/,
         /^whitespace-(normal|nowrap|pre|pre-line|pre-wrap|break-spaces)$/,
         /^(break-normal|break-words|break-all|break-keep)$/,
         /^hyphens-(none|manual|auto)$/,
+        /^text-overflow-(ellipsis|clip)$/,
         
         // Enhanced Color patterns (Tailwind v4)
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(inherit|current|transparent|black|white)$/,
@@ -671,9 +675,20 @@ module.exports = {
         // Pseudo-class prefixes (for validation of base classes)
         /^(hover|focus|focus-within|focus-visible|active|visited|target|first|last|only|odd|even|first-of-type|last-of-type|only-of-type|empty|disabled|enabled|checked|indeterminate|default|required|valid|invalid|in-range|out-of-range|placeholder-shown|autofill|read-only):/,
 
-        // Enhanced State prefixes (Tailwind v4)
-        /^(group-hover|group-focus|group-active|group-focus-within|group-focus-visible|peer-hover|peer-focus|peer-active|peer-focus-within|peer-focus-visible):/,
+        // Enhanced State prefixes (Tailwind v4) - Updated to handle :has() selectors
+        /^(group-hover|group-focus|group-active|group-focus-within|group-focus-visible|group-visited|group-target|group-first|group-last|group-only|group-odd|group-even|group-first-of-type|group-last-of-type|group-only-of-type|group-empty|group-disabled|group-enabled|group-checked|group-indeterminate|group-default|group-required|group-valid|group-invalid|group-in-range|group-out-of-range|group-placeholder-shown|group-autofill|group-read-only):/,
 
+        // Group :has() selectors (Tailwind v4)
+        /^group-has-\[.*?\]:/,
+        /^(group-has-hover|group-has-focus|group-has-active|group-has-disabled|group-has-checked|group-has-selected|group-has-valid|group-has-invalid|group-has-required|group-has-optional):/,
+
+        // Peer states
+        /^(peer-hover|peer-focus|peer-active|peer-focus-within|peer-focus-visible|peer-visited|peer-target|peer-first|peer-last|peer-only|peer-odd|peer-even|peer-first-of-type|peer-last-of-type|peer-only-of-type|peer-empty|peer-disabled|peer-enabled|peer-checked|peer-indeterminate|peer-default|peer-required|peer-valid|peer-invalid|peer-in-range|peer-out-of-range|peer-placeholder-shown|peer-autofill|peer-read-only):/,
+
+        // Peer :has() selectors (Tailwind v4)
+        /^peer-has-\[.*?\]:/,
+        /^(peer-has-hover|peer-has-focus|peer-has-active|peer-has-disabled|peer-has-checked|peer-has-selected|peer-has-valid|peer-has-invalid|peer-has-required|peer-has-optional):/,
+    
         // Responsive prefixes
         /^(sm|md|lg|xl|2xl):/,
 
@@ -699,14 +714,14 @@ module.exports = {
         /^\[&.*?\]:/,
         /^\[.*?\]$/,
       ];
-
+  
       const isMatch = tailwindPatterns.some(pattern => pattern.test(className));
-
-      if (debug && (className === 'group' || className === 'peer')) {
+  
+      if (debug && (className === 'text-nowrap' || className.includes('text-'))) {
         console.log(`🔍 isTailwindUtility(${className}): ${isMatch}`);
         console.log(`  - hasTailwindImport: ${hasTailwindImport}`);
       }
-
+  
       return isMatch;
     }
 
@@ -721,29 +736,88 @@ module.exports = {
 
     function getBaseClass(className) {
       const prefixes = [
+        // Basic responsive prefixes
         'sm:', 'md:', 'lg:', 'xl:', '2xl:',
+        
+        // Basic pseudo-class prefixes
         'hover:', 'focus:', 'focus-within:', 'focus-visible:', 'active:', 'visited:', 'target:',
         'first:', 'last:', 'only:', 'odd:', 'even:', 'first-of-type:', 'last-of-type:',
         'only-of-type:', 'empty:', 'disabled:', 'enabled:', 'checked:', 'indeterminate:',
         'default:', 'required:', 'valid:', 'invalid:', 'in-range:', 'out-of-range:',
         'placeholder-shown:', 'autofill:', 'read-only:',
+        
+        // Enhanced group states (Tailwind v4) - including :has() selectors
         'group-hover:', 'group-focus:', 'group-active:', 'group-focus-within:', 'group-focus-visible:',
+        'group-visited:', 'group-target:', 'group-first:', 'group-last:', 'group-only:',
+        'group-odd:', 'group-even:', 'group-first-of-type:', 'group-last-of-type:',
+        'group-only-of-type:', 'group-empty:', 'group-disabled:', 'group-enabled:',
+        'group-checked:', 'group-indeterminate:', 'group-default:', 'group-required:',
+        'group-valid:', 'group-invalid:', 'group-in-range:', 'group-out-of-range:',
+        'group-placeholder-shown:', 'group-autofill:', 'group-read-only:',
+        
+        // Group :has() selectors (Tailwind v4)
+        'group-has-\\[.*?\\]:', 'group-has-hover:', 'group-has-focus:', 'group-has-active:',
+        'group-has-disabled:', 'group-has-checked:', 'group-has-selected:', 'group-has-valid:',
+        'group-has-invalid:', 'group-has-required:', 'group-has-optional:',
+        
+        // Enhanced peer states (Tailwind v4)
         'peer-hover:', 'peer-focus:', 'peer-active:', 'peer-focus-within:', 'peer-focus-visible:',
-        'dark:', 'light:', // Enhanced mode support
-        'motion-safe:', 'motion-reduce:', 'contrast-more:', 'contrast-less:', // New preference queries
-        'portrait:', 'landscape:', // Orientation queries
-        'print:', // Print media query
-        'supports-\\[.*?\\]:', // Feature queries
+        'peer-visited:', 'peer-target:', 'peer-first:', 'peer-last:', 'peer-only:',
+        'peer-odd:', 'peer-even:', 'peer-first-of-type:', 'peer-last-of-type:',
+        'peer-only-of-type:', 'peer-empty:', 'peer-disabled:', 'peer-enabled:',
+        'peer-checked:', 'peer-indeterminate:', 'peer-default:', 'peer-required:',
+        'peer-valid:', 'peer-invalid:', 'peer-in-range:', 'peer-out-of-range:',
+        'peer-placeholder-shown:', 'peer-autofill:', 'peer-read-only:',
+        
+        // Peer :has() selectors (Tailwind v4)
+        'peer-has-\\[.*?\\]:', 'peer-has-hover:', 'peer-has-focus:', 'peer-has-active:',
+        'peer-has-disabled:', 'peer-has-checked:', 'peer-has-selected:', 'peer-has-valid:',
+        'peer-has-invalid:', 'peer-has-required:', 'peer-has-optional:',
+        
+        // Mode prefixes
+        'dark:', 'light:',
+        
+        // Preference queries
+        'motion-safe:', 'motion-reduce:', 'contrast-more:', 'contrast-less:',
+        
+        // Orientation queries
+        'portrait:', 'landscape:',
+        
+        // Print media query
+        'print:',
+        
+        // Feature queries
+        'supports-\\[.*?\\]:',
+        
+        // Data and ARIA attributes
         'data-\\[.*?\\]:', 'aria-\\[.*?\\]:',
+        
+        // Complex selectors
         '\\[&.*?\\]:',
       ];
 
       let baseClass = className;
-      for (const prefix of prefixes) {
-        const regex = new RegExp(`^${prefix}`);
-        if (regex.test(baseClass)) {
-          baseClass = baseClass.replace(regex, '');
-          break;
+      let foundPrefix = false;
+      
+      // Keep stripping prefixes until we can't strip anymore
+      // This handles chained prefixes like group-has-disabled:group-has-checked:bg-color
+      while (!foundPrefix) {
+        let stripped = false;
+        
+        for (const prefix of prefixes) {
+          const regex = new RegExp(`^${prefix}`);
+          if (regex.test(baseClass)) {
+            const newBaseClass = baseClass.replace(regex, '');
+            if (newBaseClass !== baseClass) {
+              baseClass = newBaseClass;
+              stripped = true;
+              break;
+            }
+          }
+        }
+        
+        if (!stripped) {
+          foundPrefix = true;
         }
       }
 
