@@ -1,0 +1,24 @@
+{
+  "name": "eslint-plugin-tailwind-v4",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "eslint",
+    "tailwind",
+    "css",
+    "linting"
+  ],
+  "author": "Darren Yeoh",
+  "license": "ISC",
+  "description": "ESLint plugin for Tailwind CSS v4 class validation",
+  "repository": "github:yourusername/eslint-plugin-tailwind-v4",
+  "peerDependencies": {
+    "eslint": ">=8.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  }
+}
