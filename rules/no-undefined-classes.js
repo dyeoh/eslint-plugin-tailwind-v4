@@ -1,4 +1,4 @@
-// eslint-plugin-tailwind-v4/rules/no-undefined-classes.js
+// no-undefined-classes.js
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -24,6 +24,10 @@ module.exports = {
             type: 'boolean',
             default: true,
           },
+          debug: {
+            type: 'boolean',
+            default: false,
+          },
         },
         additionalProperties: false,
       },
@@ -37,7 +41,8 @@ module.exports = {
     const options = context.options[0] || {};
     const { 
       cssFile = 'src/styles/globals.css', 
-      allowArbitraryValues = true
+      allowArbitraryValues = true,
+      debug = false
     } = options;
 
     let validClasses = new Set();
@@ -56,45 +61,68 @@ module.exports = {
           return;
         }
 
-        // Build your complete CSS using just your globals.css
-        // No test HTML needed since you have all your imports
         const outputCssPath = path.join(projectRoot, 'temp-eslint-validation.css');
 
         try {
-          // Build CSS with all your project files as content
+          // ✅ Let's try building CSS with ALL possible content patterns
+          const contentPattern = `"${projectRoot}/src/**/*.{js,jsx,ts,tsx,html}" "${projectRoot}/**/*.{js,jsx,ts,tsx}" "${projectRoot}/pages/**/*.{js,jsx,ts,tsx}" "${projectRoot}/app/**/*.{js,jsx,ts,tsx}" "${projectRoot}/components/**/*.{js,jsx,ts,tsx}"`;
+          
+          if (debug) {
+            console.log(`🔍 Building CSS from: ${cssPath}`);
+            console.log(`🔍 Content pattern: ${contentPattern}`);
+          }
+
           execSync(
-            `npx @tailwindcss/cli@next -i ${cssPath} -o ${outputCssPath} --content "./src/**/*.{js,jsx,ts,tsx}"`,
+            `npx @tailwindcss/cli@next -i ${cssPath} -o ${outputCssPath} --content ${contentPattern}`,
             { 
               cwd: projectRoot, 
-              stdio: 'pipe'
+              stdio: debug ? 'inherit' : 'pipe'
             }
           );
 
-          // Read the complete generated CSS
           const generatedCss = fs.readFileSync(outputCssPath, 'utf8');
           
-          // Extract all class names from the generated CSS
+          if (debug) {
+            console.log(`🔍 Generated CSS size: ${(generatedCss.length / 1024).toFixed(2)}KB`);
+            // Show first few classes found
+            const cssLines = generatedCss.split('\n').slice(0, 50);
+            console.log('🔍 First 50 lines of generated CSS:');
+            console.log(cssLines.join('\n'));
+          }
+          
           extractAllClassNames(generatedCss);
 
-          // Clean up
           fs.unlinkSync(outputCssPath);
 
-          console.log(`✅ Extracted ${validClasses.size} valid classes from your CSS build`);
+          if (debug) {
+            console.log(`✅ Extracted ${validClasses.size} valid classes from CSS build`);
+            // Show some examples of what was found
+            const classArray = Array.from(validClasses);
+            console.log('🔍 Sample classes found:', classArray.slice(0, 20));
+            console.log('🔍 Looking for whitespace-nowrap:', validClasses.has('whitespace-nowrap'));
+            console.log('🔍 Looking for items-center:', validClasses.has('items-center'));
+            console.log('🔍 Looking for flex:', validClasses.has('flex'));
+          }
 
         } catch (buildError) {
           console.warn('Could not build CSS for validation:', buildError.message);
+          if (debug) {
+            console.error('Full build error:', buildError);
+          }
         }
 
         cssBuilt = true;
 
       } catch (error) {
         console.warn('CSS validation setup failed:', error.message);
+        if (debug) {
+          console.error('Full setup error:', error);
+        }
         cssBuilt = true;
       }
     }
 
     function extractAllClassNames(css) {
-      // Extract all CSS class selectors
       const classRegex = /\.([a-zA-Z_-][\w\-\\:\[\]\/\(\)]*(?:\\[\w\-\\:\[\]\/\(\)]+)*)/g;
       let match;
 
@@ -113,7 +141,6 @@ module.exports = {
           .replace(/\\\//g, '/')
           .replace(/\\\\/g, '\\');
 
-        // Skip CSS-only classes that aren't meant to be used directly
         if (!isInternalCssClass(className)) {
           validClasses.add(className);
         }
@@ -121,11 +148,9 @@ module.exports = {
     }
 
     function isInternalCssClass(className) {
-      // Filter out internal CSS classes that shouldn't be used directly
       const internalPatterns = [
         /^before$/, /^after$/, /^first-letter$/, /^first-line$/,
         /^marker$/, /^backdrop$/,
-        /^-/, // Negative utility classes are handled by Tailwind
       ];
 
       return internalPatterns.some(pattern => pattern.test(className));
@@ -136,7 +161,6 @@ module.exports = {
     }
 
     function getBaseClass(className) {
-      // Remove prefixes to get base class
       const prefixes = [
         'sm:', 'md:', 'lg:', 'xl:', '2xl:',
         'hover:', 'focus:', 'active:', 'disabled:', 'dark:',
@@ -157,17 +181,14 @@ module.exports = {
     }
 
     function isValidClass(className) {
-      // Allow arbitrary values
       if (isArbitraryValue(className) && allowArbitraryValues) {
         return true;
       }
 
-      // Check exact match
       if (validClasses.has(className)) {
         return true;
       }
 
-      // Check base class for prefixed utilities
       const baseClass = getBaseClass(className);
       if (baseClass && validClasses.has(baseClass)) {
         return true;
@@ -196,13 +217,15 @@ module.exports = {
     }
 
     function validateClasses(node, classNames) {
-      // Build CSS on first validation
       if (!cssBuilt) {
         buildAndExtractClasses();
       }
 
       classNames.forEach(className => {
         if (!isValidClass(className)) {
+          if (debug) {
+            console.log(`❌ Invalid class found: ${className}`);
+          }
           context.report({
             node,
             messageId: 'undefinedClass',
