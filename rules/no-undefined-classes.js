@@ -99,14 +99,20 @@ module.exports = {
             console.log(`📁 Parsing: ${path.relative(projectRoot, currentPath)}`);
           }
 
-          // Enhanced Tailwind import detection (v4)
-          if (cssContent.includes('@import "tailwindcss"') ||
-            cssContent.includes('@import \'tailwindcss\'') ||
-            cssContent.includes('@import url("tailwindcss")') ||
-            cssContent.includes('@import url(\'tailwindcss\')') ||
-            cssContent.includes('@tailwind base') ||
-            cssContent.includes('@tailwind components') ||
-            cssContent.includes('@tailwind utilities')) {
+          // Enhanced Tailwind import detection (v4) - More comprehensive patterns
+          const tailwindImportPatterns = [
+            /@import\s+["']tailwindcss["']/,
+            /@import\s+url\(["']?tailwindcss["']?\)/,
+            /@tailwind\s+(base|components|utilities)/,
+            // Also check for Tailwind v4 specific patterns
+            /@import\s+["']tailwindcss\/[^"']*["']/,
+            // Check for @theme blocks as indicator of Tailwind v4
+            /@theme\s*\{/
+          ];
+
+          const foundTailwind = tailwindImportPatterns.some(pattern => pattern.test(cssContent));
+
+          if (foundTailwind) {
             hasTailwindImport = true;
             if (debug) console.log('✅ Found Tailwind import');
           }
@@ -122,7 +128,7 @@ module.exports = {
             const importPath = match[1];
 
             // Skip the tailwindcss import
-            if (importPath === 'tailwindcss') continue;
+            if (importPath === 'tailwindcss' || importPath.startsWith('tailwindcss/')) continue;
 
             // Handle relative imports
             if (importPath.startsWith('./') || importPath.startsWith('../')) {
@@ -502,28 +508,35 @@ module.exports = {
 
         // Layout patterns
         /^(container|block|inline-block|inline|flex|inline-flex|table|inline-table|table-caption|table-cell|table-column|table-column-group|table-footer-group|table-header-group|table-row-group|table-row|flow-root|grid|inline-grid|contents|list-item|hidden)$/,
+        
+        // Group and Peer utilities (MISSING - this was the issue!)
+        /^(group|peer)$/,
+        /^group\/[\w-]+$/,  // Named groups: group/sidebar
+        /^peer\/[\w-]+$/,   // Named peers: peer/checkbox
+
+        // Flex patterns
         /^flex-(row|col|wrap|nowrap|1|auto|initial|none)(-reverse)?$/,
         /^(grow|grow-0|shrink|shrink-0)$/,
         /^(items|justify|content|self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
         /^(place-content|place-items|place-self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
-
+        
         // Logical Properties (Tailwind v4)
         /^(m|p)(s|e|is|ie|bs|be)-(\d+\.?\d*|px|auto)$/,
         /^border-(s|e|is|ie|bs|be)(-\d+)?$/,
         /^rounded-(s|e|ss|se|ee|es)(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
-
+        
         // Spacing patterns
         /^(p|m|px|py|pt|pr|pb|pl|mx|my|mt|mr|mb|ml)-(\d+\.?\d*|px|auto)$/,
         /^gap(-x|-y)?-(\d+\.?\d*|px)$/,
         /^space-(x|y)-(\d+\.?\d*|px|reverse)$/,
-
+        
         // Enhanced Sizing patterns (Tailwind v4)
         /^(w|h)-(dvh|lvh|svh|dvw|lvw|svw)$/,
         /^(min-w|min-h|max-w|max-h)-(0|none|full|min|max|fit|prose|screen-(sm|md|lg|xl|2xl))$/,
         /^size-(\d+\.?\d*|px|auto|full|screen|min|max|fit)$/,
         /^(w|h|min-w|min-h|max-w|max-h)-(0|px|\d+\.?\d*|auto|full|screen|min|max|fit)$/,
         /^(w|h)-(\d+\/\d+)$/,
-
+        
         // Typography patterns
         /^text-(xs|sm|base|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl|8xl|9xl)$/,
         /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/,
@@ -541,14 +554,14 @@ module.exports = {
         /^whitespace-(normal|nowrap|pre|pre-line|pre-wrap|break-spaces)$/,
         /^(break-normal|break-words|break-all|break-keep)$/,
         /^hyphens-(none|manual|auto)$/,
-
+        
         // Enhanced Color patterns (Tailwind v4)
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(inherit|current|transparent|black|white)$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)(-\d+)?\/\d+$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(current|transparent|inherit)\/\d+$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)-(\d+)\/(\d+)$/, // opacity variants
-
+        
         // Background patterns
         /^bg-(fixed|local|scroll)$/,
         /^bg-(auto|cover|contain)$/,
@@ -556,7 +569,7 @@ module.exports = {
         /^bg-(repeat|no-repeat|repeat-x|repeat-y|repeat-round|repeat-space)$/,
         /^bg-origin-(border|padding|content)$/,
         /^bg-clip-(border|padding|content|text)$/,
-
+        
         // Border patterns
         /^border(-\d+|-x|-y|-s|-e|-t|-r|-b|-l)?$/,
         /^border-(solid|dashed|dotted|double|hidden|none)$/,
@@ -566,30 +579,30 @@ module.exports = {
         /^outline-offset-\d+$/,
         /^ring(-\d+|-inset)?$/,
         /^ring-offset-\d+$/,
-
+        
         // Border radius patterns
         /^rounded(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
         /^rounded-(s|e|t|r|b|l|ss|se|ee|es|tl|tr|br|bl)(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-full)?$/,
-
+        
         // Effects patterns
         /^shadow(-none|-sm|-md|-lg|-xl|-2xl|-inner)?$/,
         /^shadow-\w+-(\d+)(\/\d+)?$/,
         /^opacity-(\d+)$/,
         /^mix-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity|plus-darker|plus-lighter)$/,
         /^bg-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity)$/,
-
+        
         // Filter patterns
         /^(blur|brightness|contrast|drop-shadow|grayscale|hue-rotate|invert|saturate|sepia)(-none|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
         /^backdrop-(blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia)(-none|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
-
+        
         // Table patterns
         /^(border-collapse|border-separate)$/,
         /^(table-auto|table-fixed)$/,
         /^caption-(top|bottom)$/,
-
+        
         // Animation patterns
         /^animate-(none|spin|ping|pulse|bounce)$/,
-
+        
         // Transform patterns
         /^(transform|transform-cpu|transform-gpu|transform-none)$/,
         /^scale(-\d+|-x-\d+|-y-\d+)?$/,
@@ -597,30 +610,30 @@ module.exports = {
         /^translate-(x|y)-(\d+\.?\d*|px|full)$/,
         /^skew-(x|y)-(\d+)$/,
         /^origin-(center|top|top-right|right|bottom-right|bottom|bottom-left|left|top-left)$/,
-
+        
         // Transition patterns
         /^transition(-none|-all|-colors|-opacity|-shadow|-transform)?$/,
         /^duration-(\d+)$/,
         /^delay-(\d+)$/,
         /^ease-(linear|in|out|in-out)$/,
-
+        
         // Position patterns
         /^(static|fixed|absolute|relative|sticky)$/,
         /^(inset|inset-x|inset-y|top|right|bottom|left)-(\d+\.?\d*|px|auto|full)$/,
         /^z-(\d+|auto)$/,
-
+        
         // Overflow patterns
         /^(overflow|overflow-x|overflow-y)-(auto|hidden|clip|visible|scroll)$/,
         /^(overscroll|overscroll-x|overscroll-y)-(auto|contain|none)$/,
-
+        
         // Visibility patterns
         /^(visible|invisible|collapse)$/,
         /^(isolate|isolation-auto)$/,
-
+        
         // Object patterns
         /^object-(contain|cover|fill|none|scale-down)$/,
         /^object-(bottom|center|left|left-bottom|left-top|right|right-bottom|right-top|top)$/,
-
+        
         // Interactivity patterns
         /^(appearance-none|appearance-auto)$/,
         /^cursor-(auto|default|pointer|wait|text|move|help|not-allowed|none|context-menu|progress|cell|crosshair|vertical-text|alias|copy|no-drop|grab|grabbing|all-scroll|col-resize|row-resize|n-resize|e-resize|s-resize|w-resize|ne-resize|nw-resize|se-resize|sw-resize|ew-resize|ns-resize|nesw-resize|nwse-resize|zoom-in|zoom-out)$/,
@@ -634,14 +647,14 @@ module.exports = {
         /^touch-(auto|none|pan-x|pan-left|pan-right|pan-y|pan-up|pan-down|pinch-zoom|manipulation)$/,
         /^select-(none|text|all|auto)$/,
         /^will-change-(auto|scroll|contents|transform)$/,
-
+        
         // SVG patterns
         /^fill-(none|current|\w+-\d+)$/,
         /^stroke-(none|current|\w+-\d+|\d+)$/,
-
+        
         // Accessibility patterns
         /^(sr-only|not-sr-only)$/,
-
+        
         // Grid patterns
         /^grid-cols-(none|\d+|subgrid)$/,
         /^col-(auto|span-\d+|span-full|start-\d+|start-auto|end-\d+|end-auto)$/,
@@ -649,7 +662,7 @@ module.exports = {
         /^row-(auto|span-\d+|span-full|start-\d+|start-auto|end-\d+|end-auto)$/,
         /^grid-flow-(row|col|dense|row-dense|col-dense)$/,
         /^auto-(cols|rows)-(auto|min|max|fr)$/,
-
+        
         // List patterns
         /^list-(none|disc|decimal)$/,
         /^list-(inside|outside)$/,
@@ -687,7 +700,14 @@ module.exports = {
         /^\[.*?\]$/,
       ];
 
-      return tailwindPatterns.some(pattern => pattern.test(className));
+      const isMatch = tailwindPatterns.some(pattern => pattern.test(className));
+
+      if (debug && (className === 'group' || className === 'peer')) {
+        console.log(`🔍 isTailwindUtility(${className}): ${isMatch}`);
+        console.log(`  - hasTailwindImport: ${hasTailwindImport}`);
+      }
+
+      return isMatch;
     }
 
     function isArbitraryValue(className) {
