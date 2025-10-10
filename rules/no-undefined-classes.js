@@ -109,21 +109,64 @@ module.exports = {
       }
     }
 
-    function extractCustomClasses(cssContent) {
-      // Extract utility classes like .text-button, .bg-tag-grey
-      const utilityRegex = /\.([a-zA-Z][\w-]*)\s*\{/g;
-      let match;
-      
-      while ((match = utilityRegex.exec(cssContent)) !== null) {
-        customClasses.add(match[1]);
-      }
+  function extractCustomClasses(cssContent) {
+    // Extract explicit utility classes: .text-button { ... }
+    const utilityRegex = /\.([a-zA-Z][\w-]*)\s*\{/g;
+    let match;
+    
+    while ((match = utilityRegex.exec(cssContent)) !== null) {
+      customClasses.add(match[1]);
+    }
 
-      // Extract @utility definitions (Tailwind v4)
-      const utilityDefRegex = /@utility\s+([a-zA-Z][\w-]*)/g;
-      while ((match = utilityDefRegex.exec(cssContent)) !== null) {
-        customClasses.add(match[1]);
+    // ✅ NEW: Extract @theme color variables and generate utility classes
+    const themeBlockRegex = /@theme\s*\{([^}]+)\}/gs;
+    const themeMatch = themeBlockRegex.exec(cssContent);
+    
+    if (themeMatch) {
+      const themeContent = themeMatch[1];
+      
+      // Extract color variables: --color-dark-grey: #53565a;
+      const colorVarRegex = /--color-([a-zA-Z][\w-]*)\s*:/g;
+      let colorMatch;
+      
+      while ((colorMatch = colorVarRegex.exec(themeContent)) !== null) {
+        const colorName = colorMatch[1];
+        
+        // Tailwind v4 automatically generates these utility classes from color variables
+        const colorUtilities = [
+          `text-${colorName}`,
+          `bg-${colorName}`,
+          `border-${colorName}`,
+          `decoration-${colorName}`,
+          `outline-${colorName}`,
+          `ring-${colorName}`,
+          `ring-offset-${colorName}`,
+          `shadow-${colorName}`,
+          `accent-${colorName}`,
+          `caret-${colorName}`,
+          `fill-${colorName}`,
+          `stroke-${colorName}`,
+        ];
+        
+        colorUtilities.forEach(cls => customClasses.add(cls));
+        
+        if (debug && colorName.includes('dark')) {
+          console.log(`🎨 Generated color utilities for: ${colorName}`);
+          console.log(`   Including: text-${colorName}, bg-${colorName}, etc.`);
+        }
       }
     }
+
+    // Extract @utility definitions (Tailwind v4)
+    const utilityDefRegex = /@utility\s+([a-zA-Z][\w-]*)/g;
+    while ((match = utilityDefRegex.exec(cssContent)) !== null) {
+      customClasses.add(match[1]);
+      
+      if (debug) {
+        console.log(`🔧 Found @utility: ${match[1]}`);
+      }
+    }
+  }
 
     function isTailwindUtility(className) {
       // Comprehensive Tailwind utility patterns (like VS Code IntelliSense uses)
