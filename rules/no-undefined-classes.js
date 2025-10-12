@@ -1,4 +1,3 @@
-// eslint-plugin-tailwind-v4/rules/no-undefined-classes.js
 const fs = require('fs');
 const path = require('path');
 
@@ -111,7 +110,7 @@ module.exports = {
           // Extract custom classes and theme variables
           extractCustomClasses(cssContent, currentPath, projectRoot);
 
-          // Queue additional CSS imports (FIXED: Now properly adds to the processing queue)
+          // Queue additional CSS imports
           queueCSSImports(cssContent, currentPath, projectRoot, cssQueue, visited);
 
         } catch (error) {
@@ -187,6 +186,9 @@ module.exports = {
       // Extract explicit utility classes
       classesFound += extractExplicitClasses(cssContent, fileName, explicitClasses);
 
+      // Extract gradient utilities
+      classesFound += extractGradientUtilities(cssContent, fileName);
+
       // Extract theme variables and generate utilities
       classesFound += extractThemeVariables(cssContent, fileName, explicitClasses);
 
@@ -202,17 +204,23 @@ module.exports = {
     }
 
     function extractExplicitClasses(cssContent, fileName, explicitClasses) {
-      const utilityRegex = /\.([a-zA-Z][\w-]*)\s*\{/g;
+      // Updated regex to handle escaped characters in CSS class names
+      const utilityRegex = /\.([a-zA-Z][\w-]*(?:\\[\w\/][\w-]*)*)\s*\{/g;
       let match;
       let count = 0;
 
       while ((match = utilityRegex.exec(cssContent)) !== null) {
-        const className = match[1];
+        let className = match[1];
+        
+        // Convert escaped CSS class name to actual class name
+        // .flex-1\/2 becomes flex-1/2
+        className = className.replace(/\\/g, '');
+        
         explicitClasses.add(className);
         customClasses.add(className);
         count++;
 
-        if (debug && (className.includes('button') || className.includes('tag') || className.includes('dropdown') || className.includes('markdown'))) {
+        if (debug && (className.includes('button') || className.includes('tag') || className.includes('dropdown') || className.includes('markdown') || className.includes('flex-'))) {
           console.log(`🎯 Found explicit class in ${fileName}: .${className}`);
         }
       }
@@ -221,7 +229,7 @@ module.exports = {
     }
 
     function extractThemeVariables(cssContent, fileName, explicitClasses) {
-      const themeBlockRegex = /@theme\s*\{([^}]+)\}/gs;
+      const themeBlockRegex = /@theme\s*\{([\s\S]*?)\}/gs;
       let themeMatch;
       let count = 0;
 
@@ -232,12 +240,19 @@ module.exports = {
           console.log(`🎨 Found @theme block in ${fileName}`);
         }
 
-        const variableRegex = /--([a-zA-Z][\w-]*)\s*:/g;
+        // Updated regex to handle CSS variables with complex values
+        const variableRegex = /--([a-zA-Z][\w-]*)\s*:\s*([^;]+);/g;
         let varMatch;
 
         while ((varMatch = variableRegex.exec(themeContent)) !== null) {
           const fullVarName = varMatch[1];
+          const variableValue = varMatch[2].trim();
+          
           foundThemeVariables.add(fullVarName);
+
+          if (debug && fullVarName.startsWith('animate-')) {
+            console.log(`🎬 Found animation variable: --${fullVarName}: ${variableValue}`);
+          }
 
           const generatedCount = generateUtilitiesFromVariable(fullVarName, fileName, explicitClasses);
           count += generatedCount;
@@ -279,17 +294,46 @@ module.exports = {
           console.log(`📝 Layer content preview: ${layerContent.substring(0, 100)}...`);
         }
 
-        const layerUtilityRegex = /\.([a-zA-Z][\w-]*)\s*\{/g;
+        // Updated regex to handle escaped characters in CSS class names
+        const layerUtilityRegex = /\.([a-zA-Z][\w-]*(?:\\[\w\/][\w-]*)*)\s*\{/g;
         let layerUtilityMatch;
 
         while ((layerUtilityMatch = layerUtilityRegex.exec(layerContent)) !== null) {
-          const className = layerUtilityMatch[1];
+          let className = layerUtilityMatch[1];
+          
+          // Convert escaped CSS class name to actual class name
+          // .flex-1\/2 becomes flex-1/2
+          className = className.replace(/\\/g, '');
+          
           customClasses.add(className);
           count++;
 
           if (debug) {
             console.log(`🎯 Found @layer utility in ${fileName}: .${className}`);
           }
+        }
+      }
+
+      return count;
+    }
+
+    // Add new function to extract gradient utilities from CSS
+    function extractGradientUtilities(cssContent, fileName) {
+      // Match gradient utility classes like .from-blue-gradient-start, .to-red-500, etc.
+      const gradientRegex = /\.(from|via|to)-([a-zA-Z][\w-]*)\s*\{/g;
+      let match;
+      let count = 0;
+
+      while ((match = gradientRegex.exec(cssContent)) !== null) {
+        const gradientType = match[1]; // from, via, or to
+        const colorName = match[2];
+        const gradientUtility = `${gradientType}-${colorName}`;
+        
+        customClasses.add(gradientUtility);
+        count++;
+
+        if (debug) {
+          console.log(`🌈 Found gradient utility in ${fileName}: .${gradientUtility}`);
         }
       }
 
@@ -325,6 +369,8 @@ module.exports = {
         `decoration-${colorName}`, `outline-${colorName}`, `ring-${colorName}`,
         `ring-offset-${colorName}`, `shadow-${colorName}`, `accent-${colorName}`,
         `caret-${colorName}`, `fill-${colorName}`, `stroke-${colorName}`,
+        // Add gradient utilities
+        `from-${colorName}`, `via-${colorName}`, `to-${colorName}`,
       ];
 
       let count = 0;
@@ -504,30 +550,41 @@ module.exports = {
     // =============================================================================
 
     function isValidClass(className) {
+      // Handle important modifier
+      let cleanClassName = className;
+      if (cleanClassName.startsWith('!')) {
+        cleanClassName = cleanClassName.substring(1);
+      }
+
       // Allow arbitrary values
-      if (isArbitraryValue(className) && allowArbitraryValues) {
+      if (isArbitraryValue(cleanClassName) && allowArbitraryValues) {
         return true;
       }
 
       // Check if it's in our custom classes (highest priority)
-      if (validClasses.has(className)) {
+      if (validClasses.has(cleanClassName)) {
         return true;
       }
 
       // Check base class for prefixed utilities
       const baseClass = getBaseClass(className);
       if (baseClass) {
-        if (validClasses.has(baseClass)) {
+        let cleanBaseClass = baseClass;
+        if (cleanBaseClass.startsWith('!')) {
+          cleanBaseClass = cleanBaseClass.substring(1);
+        }
+        
+        if (validClasses.has(cleanBaseClass)) {
           return true;
         }
-        if (hasTailwindImport && isTailwindUtility(baseClass)) {
-          return !isOverridableUtility(baseClass) || !hasThemeOverride(baseClass);
+        if (hasTailwindImport && isTailwindUtility(cleanBaseClass)) {
+          return !isOverridableUtility(cleanBaseClass) || !hasThemeOverride(cleanBaseClass);
         }
       }
 
       // Check Tailwind utilities
       if (hasTailwindImport && isTailwindUtility(className)) {
-        return !isOverridableUtility(className) || !hasThemeOverride(className);
+        return !isOverridableUtility(cleanClassName) || !hasThemeOverride(cleanClassName);
       }
 
       return false;
@@ -599,6 +656,12 @@ module.exports = {
     // =============================================================================
 
     function isTailwindUtility(className) {
+      // Handle important modifier
+      let cleanClassName = className;
+      if (cleanClassName.startsWith('!')) {
+        cleanClassName = cleanClassName.substring(1);
+      }
+
       const tailwindPatterns = [
         // Container Queries
         /^@(xs|sm|md|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl)\/(.+)$/,
@@ -612,9 +675,11 @@ module.exports = {
         /^group\/[\w-]+$/,
         /^peer\/[\w-]+$/,
 
-        // Flexbox
+        // Flexbox - ENHANCED
         /^flex-(row|col|wrap|nowrap|1|auto|initial|none)(-reverse)?$/,
+        /^flex-(\d+\/\d+|\d+)$/,
         /^(grow|grow-0|shrink|shrink-0)$/,
+        /^flex-(grow|shrink)(-0)?$/, // flex-grow, flex-shrink, flex-grow-0, flex-shrink-0
         /^(items|justify|content|self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
         /^(place-content|place-items|place-self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
 
@@ -650,12 +715,13 @@ module.exports = {
         /^indent-(\d+\.?\d*|px)$/,
         /^(align-baseline|align-top|align-middle|align-bottom|align-text-top|align-text-bottom|align-super|align-sub)$/,
 
-        // Text and whitespace
+        // Text and whitespace - ENHANCED with line-clamp
         /^text-(wrap|nowrap|balance|pretty)$/,
         /^whitespace-(normal|nowrap|pre|pre-line|pre-wrap|break-spaces)$/,
         /^(break-normal|break-words|break-all|break-keep)$/,
         /^hyphens-(none|manual|auto)$/,
         /^text-overflow-(ellipsis|clip)$/,
+        /^line-clamp-(\d+|none)$/, // Added line-clamp support
 
         // Colors
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(inherit|current|transparent|black|white)$/,
@@ -664,16 +730,26 @@ module.exports = {
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(current|transparent|inherit)\/\d+$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)-(\d+)\/(\d+)$/,
 
-        // Backgrounds
+        // Backgrounds & Gradients - ENHANCED
         /^bg-(fixed|local|scroll)$/,
         /^bg-(auto|cover|contain)$/,
         /^bg-(center|top|right|bottom|left|right-top|right-bottom|left-top|left-bottom)$/,
         /^bg-(repeat|no-repeat|repeat-x|repeat-y|repeat-round|repeat-space)$/,
         /^bg-origin-(border|padding|content)$/,
         /^bg-clip-(border|padding|content|text)$/,
+        // Gradient directions
+        /^bg-gradient-to-(t|tr|r|br|b|bl|l|tl)$/,
+        /^bg-gradient-(conic|radial|linear)$/,
+        // Gradient stops - enhanced to handle custom colors
+        /^(from|via|to)-(inherit|current|transparent|black|white)$/,
+        /^(from|via|to)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
+        /^(from|via|to)-[\w-]+$/, // Custom gradient colors like from-blue-gradient-start
 
-        // Borders
-        /^border(-\d+|-x|-y|-s|-e|-t|-r|-b|-l)?$/,
+        // Borders - ENHANCED to handle all border utilities properly
+        /^border$/,
+        /^border-(\d+\.?\d*|px)$/,
+        /^border-(x|y|s|e|t|r|b|l)$/,
+        /^border-(x|y|s|e|t|r|b|l)-(\d+\.?\d*|px)$/,
         /^border-(solid|dashed|dotted|double|hidden|none)$/,
         /^(divide-x|divide-y)(-\d+|-reverse)?$/,
         /^divide-(solid|dashed|dotted|double|none)$/,
@@ -693,9 +769,9 @@ module.exports = {
         /^mix-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity|plus-darker|plus-lighter)$/,
         /^bg-blend-(normal|multiply|screen|overlay|darken|lighten|color-dodge|color-burn|hard-light|soft-light|difference|exclusion|hue|saturation|color|luminosity)$/,
 
-        // Filters
-        /^(blur|brightness|contrast|drop-shadow|grayscale|hue-rotate|invert|saturate|sepia)(-none|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
-        /^backdrop-(blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia)(-none|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
+        // Filters - ENHANCED to include 'xs' size and negative values
+        /^(blur|brightness|contrast|drop-shadow|grayscale|hue-rotate|invert|saturate|sepia)(-none|-xs|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
+        /^backdrop-(blur|brightness|contrast|grayscale|hue-rotate|invert|opacity|saturate|sepia)(-none|-xs|-sm|-md|-lg|-xl|-2xl|-3xl)?$/,
 
         // Tables
         /^(border-collapse|border-separate)$/,
@@ -704,13 +780,14 @@ module.exports = {
 
         // Animations
         /^animate-(none|spin|ping|pulse|bounce)$/,
+        /^animate-[\w-]+$/,
 
-        // Transforms
+        // Transforms - ENHANCED to handle negative values and fractions
         /^(transform|transform-cpu|transform-gpu|transform-none)$/,
-        /^scale(-\d+|-x-\d+|-y-\d+)?$/,
-        /^rotate-(\d+)$/,
-        /^translate-(x|y)-(\d+\.?\d*|px|full)$/,
-        /^skew-(x|y)-(\d+)$/,
+        /^-?scale(-\d+|-x-\d+|-y-\d+)?$/, // Handles scale, -scale-x-100, etc.
+        /^-?rotate-(\d+)$/,
+        /^-?translate-(x|y)-(\d+\.?\d*|px|full|\d+\/\d+)$/, // Handles negative translate and fractions
+        /^-?skew-(x|y)-(\d+)$/,
         /^origin-(center|top|top-right|right|bottom-right|bottom|bottom-left|left|top-left)$/,
 
         // Transitions
@@ -719,10 +796,10 @@ module.exports = {
         /^delay-(\d+)$/,
         /^ease-(linear|in|out|in-out)$/,
 
-        // Positioning
+        // Positioning - ENHANCED to handle negative values and fractions
         /^(static|fixed|absolute|relative|sticky)$/,
-        /^(inset|inset-x|inset-y|top|right|bottom|left)-(\d+\.?\d*|px|auto|full)$/,
-        /^z-(\d+|auto)$/,
+        /^-?(inset|inset-x|inset-y|top|right|bottom|left)-(\d+\.?\d*|px|auto|full|\d+\/\d+)$/, // Handles negative positioning and fractions
+        /^-?z-(\d+|auto)$/, // Handles negative z-index
 
         // Overflow
         /^(overflow|overflow-x|overflow-y)-(auto|hidden|clip|visible|scroll)$/,
@@ -770,8 +847,9 @@ module.exports = {
         /^list-(inside|outside)$/,
         /^marker-\w+-(\d+)$/,
 
-        // State prefixes
+        // State prefixes - ENHANCED with pseudo-elements
         /^(hover|focus|focus-within|focus-visible|active|visited|target|first|last|only|odd|even|first-of-type|last-of-type|only-of-type|empty|disabled|enabled|checked|indeterminate|default|required|valid|invalid|in-range|out-of-range|placeholder-shown|autofill|read-only):/,
+        /^(first-letter|first-line|selection|marker|placeholder|file):/, // Added pseudo-elements
         /^(group-hover|group-focus|group-active|group-focus-within|group-focus-visible|group-visited|group-target|group-first|group-last|group-only|group-odd|group-even|group-first-of-type|group-last-of-type|group-only-of-type|group-empty|group-disabled|group-enabled|group-checked|group-indeterminate|group-default|group-required|group-valid|group-invalid|group-in-range|group-out-of-range|group-placeholder-shown|group-autofill|group-read-only):/,
         /^group-has-\[.*?\]:/,
         /^(group-has-hover|group-has-focus|group-has-active|group-has-disabled|group-has-checked|group-has-selected|group-has-valid|group-has-invalid|group-has-required|group-has-optional):/,
@@ -795,7 +873,14 @@ module.exports = {
         /^\[.*?\]$/,
       ];
 
-      return tailwindPatterns.some(pattern => pattern.test(className));
+      const isMatch = tailwindPatterns.some(pattern => pattern.test(cleanClassName));
+
+      if (debug && cleanClassName.includes('line-clamp')) {
+        console.log(`🔍 isTailwindUtility(${className} -> ${cleanClassName}): ${isMatch}`);
+        console.log(`  - Testing line-clamp patterns`);
+      }
+
+      return isMatch;
     }
 
     function isArbitraryValue(className) {
@@ -807,6 +892,12 @@ module.exports = {
     }
 
     function getBaseClass(className) {
+      // Handle important modifier (!) at the beginning
+      let baseClass = className;
+      if (baseClass.startsWith('!')) {
+        baseClass = baseClass.substring(1);
+      }
+
       const prefixes = [
         'sm:', 'md:', 'lg:', 'xl:', '2xl:',
         'hover:', 'focus:', 'focus-within:', 'focus-visible:', 'active:', 'visited:', 'target:',
@@ -814,6 +905,7 @@ module.exports = {
         'only-of-type:', 'empty:', 'disabled:', 'enabled:', 'checked:', 'indeterminate:',
         'default:', 'required:', 'valid:', 'invalid:', 'in-range:', 'out-of-range:',
         'placeholder-shown:', 'autofill:', 'read-only:',
+        'first-letter:', 'first-line:', 'selection:', 'marker:', 'placeholder:', 'file:', // Added pseudo-elements
         'group-hover:', 'group-focus:', 'group-active:', 'group-focus-within:', 'group-focus-visible:',
         'group-visited:', 'group-target:', 'group-first:', 'group-last:', 'group-only:',
         'group-odd:', 'group-even:', 'group-first-of-type:', 'group-last-of-type:',
@@ -842,8 +934,6 @@ module.exports = {
         'data-\\[.*?\\]:', 'aria-\\[.*?\\]:',
         '\\[&.*?\\]:',
       ];
-
-      let baseClass = className;
 
       // Strip prefixes iteratively to handle chained prefixes
       while (true) {
