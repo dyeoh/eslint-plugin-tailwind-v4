@@ -388,6 +388,15 @@ module.exports = {
         `caret-${colorName}`, `fill-${colorName}`, `stroke-${colorName}`,
         // Add gradient utilities
         `from-${colorName}`, `via-${colorName}`, `to-${colorName}`,
+        // Add directional border utilities
+        `border-t-${colorName}`, `border-r-${colorName}`, `border-b-${colorName}`, `border-l-${colorName}`,
+        `border-x-${colorName}`, `border-y-${colorName}`,
+        // Add logical border utilities
+        `border-s-${colorName}`, `border-e-${colorName}`,
+        `border-is-${colorName}`, `border-ie-${colorName}`,
+        `border-bs-${colorName}`, `border-be-${colorName}`,
+        // Add divide utilities
+        `divide-${colorName}`,
       ];
 
       let count = 0;
@@ -688,6 +697,9 @@ module.exports = {
         // Layout
         /^(container|block|inline-block|inline|flex|inline-flex|table|inline-table|table-caption|table-cell|table-column|table-column-group|table-footer-group|table-header-group|table-row-group|table-row|flow-root|grid|inline-grid|contents|list-item|hidden)$/,
 
+        // Aspect Ratio - ADDED
+        /^aspect-(square|video|auto|\d+\/\d+)$/,
+
         // Group and Peer
         /^(group|peer)$/,
         /^group\/[\w-]+$/,
@@ -733,17 +745,23 @@ module.exports = {
         /^indent-(\d+\.?\d*|px)$/,
         /^(align-baseline|align-top|align-middle|align-bottom|align-text-top|align-text-bottom|align-super|align-sub)$/,
 
-        // Text and whitespace - ENHANCED with line-clamp
-        /^text-(wrap|nowrap|balance|pretty)$/,
+        // Text and whitespace - ENHANCED with line-clamp and text-ellipsis
+        /^text-(wrap|nowrap|balance|pretty|ellipsis|clip)$/, // Added text-ellipsis and text-clip
         /^whitespace-(normal|nowrap|pre|pre-line|pre-wrap|break-spaces)$/,
         /^(break-normal|break-words|break-all|break-keep)$/,
         /^hyphens-(none|manual|auto)$/,
         /^text-overflow-(ellipsis|clip)$/,
         /^line-clamp-(\d+|none)$/, // Added line-clamp support
 
-        // Colors - ENHANCED with opacity support
+        // Colors - ENHANCED with directional borders and opacity support
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(inherit|current|transparent|black|white)$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
+        // Directional border colors
+        /^border-(t|r|b|l|x|y|s|e|is|ie|bs|be)-(inherit|current|transparent|black|white)$/,
+        /^border-(t|r|b|l|x|y|s|e|is|ie|bs|be)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
+        /^border-(t|r|b|l|x|y|s|e|is|ie|bs|be)-[\w-]+$/, // Custom directional border colors
+        /^divide-[\w-]+$/, // Custom divide colors
+        // Standard color patterns with opacity
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)(-\d+)?\/\d+$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(current|transparent|inherit|black|white)\/\d+$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)-(\d+)\/(\d+)$/,
@@ -755,9 +773,11 @@ module.exports = {
         /^bg-(repeat|no-repeat|repeat-x|repeat-y|repeat-round|repeat-space)$/,
         /^bg-origin-(border|padding|content)$/,
         /^bg-clip-(border|padding|content|text)$/,
-        // Gradient directions
+        // Gradient directions - ENHANCED to include linear gradients
         /^bg-gradient-to-(t|tr|r|br|b|bl|l|tl)$/,
         /^bg-gradient-(conic|radial|linear)$/,
+        /^bg-linear-to-(t|tr|r|br|b|bl|l|tl)$/, // Added bg-linear-to- patterns
+        /^bg-(linear|radial|conic)-gradient$/,
         // Gradient stops - enhanced to handle custom colors and opacity
         /^(from|via|to)-(inherit|current|transparent|black|white)$/,
         /^(from|via|to)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
@@ -897,9 +917,9 @@ module.exports = {
 
       const isMatch = tailwindPatterns.some(pattern => pattern.test(cleanClassName));
 
-      if (debug && (cleanClassName.includes('from-white') || cleanClassName.includes('to-white') || cleanClassName.includes('decoration-solid') || cleanClassName.includes('@container') || cleanClassName.includes('group-even'))) {
+      if (debug && (cleanClassName.includes('aspect-square') || cleanClassName.includes('bg-linear-to') || cleanClassName.includes('text-ellipsis') || cleanClassName.includes('border-b-divider'))) {
         console.log(`🔍 isTailwindUtility(${className} -> ${cleanClassName}): ${isMatch}`);
-        console.log(`  - Testing problematic patterns`);
+        console.log(`  - Testing missing patterns`);
       }
 
       return isMatch;
