@@ -204,8 +204,8 @@ module.exports = {
     }
 
     function extractExplicitClasses(cssContent, fileName, explicitClasses) {
-      // Updated regex to handle escaped characters in CSS class names
-      const utilityRegex = /\.([a-zA-Z][\w-]*(?:\\[\w\/][\w-]*)*)\s*\{/g;
+      // Enhanced regex to handle complex escaped characters and special cases
+      const utilityRegex = /\.([a-zA-Z@][\w-]*(?:\\[\w\/\.\:\[\]]+[\w-]*)*)\s*\{/g;
       let match;
       let count = 0;
 
@@ -213,14 +213,23 @@ module.exports = {
         let className = match[1];
         
         // Convert escaped CSS class name to actual class name
-        // .flex-1\/2 becomes flex-1/2
-        className = className.replace(/\\/g, '');
+        // Handle various escape patterns
+        className = className
+          .replace(/\\:/g, ':')     // \: becomes :
+          .replace(/\\\//g, '/')    // \/ becomes /
+          .replace(/\\\./g, '.')    // \. becomes .
+          .replace(/\\\[/g, '[')    // \[ becomes [
+          .replace(/\\\]/g, ']')    // \] becomes ]
+          .replace(/\\\(/g, '(')    // \( becomes (
+          .replace(/\\\)/g, ')')    // \) becomes )
+          .replace(/\\\-/g, '-')    // \- becomes -
+          .replace(/\\\\/g, '\\');  // \\ becomes \
         
         explicitClasses.add(className);
         customClasses.add(className);
         count++;
 
-        if (debug && (className.includes('button') || className.includes('tag') || className.includes('dropdown') || className.includes('markdown') || className.includes('flex-'))) {
+        if (debug && (className.includes('@container') || className.includes('group-even') || className.includes('decoration') || className.includes('from-') || className.includes('to-'))) {
           console.log(`🎯 Found explicit class in ${fileName}: .${className}`);
         }
       }
@@ -294,16 +303,24 @@ module.exports = {
           console.log(`📝 Layer content preview: ${layerContent.substring(0, 100)}...`);
         }
 
-        // Updated regex to handle escaped characters in CSS class names
-        const layerUtilityRegex = /\.([a-zA-Z][\w-]*(?:\\[\w\/][\w-]*)*)\s*\{/g;
+        // Enhanced regex to handle complex escaped characters
+        const layerUtilityRegex = /\.([a-zA-Z@][\w-]*(?:\\[\w\/\.\:\[\]]+[\w-]*)*)\s*\{/g;
         let layerUtilityMatch;
 
         while ((layerUtilityMatch = layerUtilityRegex.exec(layerContent)) !== null) {
           let className = layerUtilityMatch[1];
           
           // Convert escaped CSS class name to actual class name
-          // .flex-1\/2 becomes flex-1/2
-          className = className.replace(/\\/g, '');
+          className = className
+            .replace(/\\:/g, ':')     // \: becomes :
+            .replace(/\\\//g, '/')    // \/ becomes /
+            .replace(/\\\./g, '.')    // \. becomes .
+            .replace(/\\\[/g, '[')    // \[ becomes [
+            .replace(/\\\]/g, ']')    // \] becomes ]
+            .replace(/\\\(/g, '(')    // \( becomes (
+            .replace(/\\\)/g, ')')    // \) becomes )
+            .replace(/\\\-/g, '-')    // \- becomes -
+            .replace(/\\\\/g, '\\');  // \\ becomes \
           
           customClasses.add(className);
           count++;
@@ -642,7 +659,7 @@ module.exports = {
       }
 
       // Shadows
-      const shadowMatch = className.match(/^shadow(-none|-sm|-md|-lg|-xl|-2xl|-3xl|-inner)?$/);
+      const shadowMatch = className.match(/^shadow(-none|-sm|-md|-lg|-2xl|-3xl|-inner)?$/);
       if (shadowMatch) {
         const shadow = shadowMatch[1] ? shadowMatch[1].replace('-', '') : 'DEFAULT';
         return foundThemeVariables.has(`shadow-${shadow}`);
@@ -663,7 +680,8 @@ module.exports = {
       }
 
       const tailwindPatterns = [
-        // Container Queries
+        // Container Queries - ENHANCED
+        /^@container$/,  // Added standalone @container
         /^@(xs|sm|md|lg|xl|2xl|3xl|4xl|5xl|6xl|7xl)\/(.+)$/,
         /^@container-(.+)\/(.+)$/,
 
@@ -708,7 +726,7 @@ module.exports = {
         /^(uppercase|lowercase|capitalize|normal-case)$/,
         /^(italic|not-italic)$/,
         /^(underline|overline|line-through|no-underline)$/,
-        /^decoration-(slice|clone|auto|from-font|\d+|double|dotted|dashed|wavy)$/,
+        /^decoration-(slice|clone|auto|from-font|\d+|double|dotted|dashed|wavy|solid)$/, // Added 'solid'
         /^underline-offset-(auto|\d+)$/,
         /^leading-(none|tight|snug|normal|relaxed|loose|\d+\.?\d*)$/,
         /^tracking-(tighter|tight|normal|wide|wider|widest)$/,
@@ -723,11 +741,11 @@ module.exports = {
         /^text-overflow-(ellipsis|clip)$/,
         /^line-clamp-(\d+|none)$/, // Added line-clamp support
 
-        // Colors
+        // Colors - ENHANCED with opacity support
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(inherit|current|transparent|black|white)$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)(-\d+)?\/\d+$/,
-        /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(current|transparent|inherit)\/\d+$/,
+        /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(current|transparent|inherit|black|white)\/\d+$/,
         /^(text|bg|border|decoration|outline|ring|ring-offset|shadow|accent|caret|fill|stroke)-(\w+)-(\d+)\/(\d+)$/,
 
         // Backgrounds & Gradients - ENHANCED
@@ -740,10 +758,13 @@ module.exports = {
         // Gradient directions
         /^bg-gradient-to-(t|tr|r|br|b|bl|l|tl)$/,
         /^bg-gradient-(conic|radial|linear)$/,
-        // Gradient stops - enhanced to handle custom colors
+        // Gradient stops - enhanced to handle custom colors and opacity
         /^(from|via|to)-(inherit|current|transparent|black|white)$/,
         /^(from|via|to)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)$/,
+        /^(from|via|to)-(inherit|current|transparent|black|white)\/\d+$/, // Added opacity support
+        /^(from|via|to)-(slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-(50|100|200|300|400|500|600|700|800|900|950)\/\d+$/,
         /^(from|via|to)-[\w-]+$/, // Custom gradient colors like from-blue-gradient-start
+        /^(from|via|to)-[\w-]+\/\d+$/, // Custom gradient colors with opacity
 
         // Borders - ENHANCED to handle all border utilities properly
         /^border$/,
@@ -853,6 +874,7 @@ module.exports = {
         /^(group-hover|group-focus|group-active|group-focus-within|group-focus-visible|group-visited|group-target|group-first|group-last|group-only|group-odd|group-even|group-first-of-type|group-last-of-type|group-only-of-type|group-empty|group-disabled|group-enabled|group-checked|group-indeterminate|group-default|group-required|group-valid|group-invalid|group-in-range|group-out-of-range|group-placeholder-shown|group-autofill|group-read-only):/,
         /^group-has-\[.*?\]:/,
         /^(group-has-hover|group-has-focus|group-has-active|group-has-disabled|group-has-checked|group-has-selected|group-has-valid|group-has-invalid|group-has-required|group-has-optional):/,
+        /^group-[\w-]+\/[\w-]+:[\w-]+$/, // Enhanced group patterns like group-even/product-shadow:p-1.25
         /^(peer-hover|peer-focus|peer-active|peer-focus-within|peer-focus-visible|peer-visited|peer-target|peer-first|peer-last|peer-only|peer-odd|peer-even|peer-first-of-type|peer-last-of-type|peer-only-of-type|peer-empty|peer-disabled|peer-enabled|peer-checked|peer-indeterminate|peer-default|peer-required|peer-valid|peer-invalid|peer-in-range|peer-out-of-range|peer-placeholder-shown|peer-autofill|peer-read-only):/,
         /^peer-has-\[.*?\]:/,
         /^(peer-has-hover|peer-has-focus|peer-has-active|peer-has-disabled|peer-has-checked|peer-has-selected|peer-has-valid|peer-has-invalid|peer-has-required|peer-has-optional):/,
@@ -875,9 +897,9 @@ module.exports = {
 
       const isMatch = tailwindPatterns.some(pattern => pattern.test(cleanClassName));
 
-      if (debug && cleanClassName.includes('line-clamp')) {
+      if (debug && (cleanClassName.includes('from-white') || cleanClassName.includes('to-white') || cleanClassName.includes('decoration-solid') || cleanClassName.includes('@container') || cleanClassName.includes('group-even'))) {
         console.log(`🔍 isTailwindUtility(${className} -> ${cleanClassName}): ${isMatch}`);
-        console.log(`  - Testing line-clamp patterns`);
+        console.log(`  - Testing problematic patterns`);
       }
 
       return isMatch;
@@ -916,6 +938,7 @@ module.exports = {
         'group-has-\\[.*?\\]:', 'group-has-hover:', 'group-has-focus:', 'group-has-active:',
         'group-has-disabled:', 'group-has-checked:', 'group-has-selected:', 'group-has-valid:',
         'group-has-invalid:', 'group-has-required:', 'group-has-optional:',
+        'group-[\\w-]+\\/[\\w-]+:', // Enhanced group patterns
         'peer-hover:', 'peer-focus:', 'peer-active:', 'peer-focus-within:', 'peer-focus-visible:',
         'peer-visited:', 'peer-target:', 'peer-first:', 'peer-last:', 'peer-only:',
         'peer-odd:', 'peer-even:', 'peer-first-of-type:', 'peer-last-of-type:',
