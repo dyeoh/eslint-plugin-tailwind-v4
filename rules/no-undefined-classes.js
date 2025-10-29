@@ -723,9 +723,10 @@ module.exports = {
         /^gap(-x|-y)?-(\d+\.?\d*|px)$/,
         /^space-(x|y)-(\d+\.?\d*|px|reverse)$/,
 
-        // Sizing
+        // Sizing - ENHANCED to include fractions for min/max width/height
         /^(w|h)-(dvh|lvh|svh|dvw|lvw|svw)$/,
         /^(min-w|min-h|max-w|max-h)-(0|none|full|min|max|fit|prose|screen-(sm|md|lg|xl|2xl))$/,
+        /^(min-w|min-h|max-w|max-h)-(\d+\/\d+)$/, // Added fractional support for min/max width/height
         /^size-(\d+\.?\d*|px|auto|full|screen|min|max|fit)$/,
         /^(w|h|min-w|min-h|max-w|max-h)-(0|px|\d+\.?\d*|auto|full|screen|min|max|fit)$/,
         /^(w|h)-(\d+\/\d+)$/,
@@ -794,7 +795,7 @@ module.exports = {
         /^border-(solid|dashed|dotted|double|hidden|none)$/,
         /^(divide-x|divide-y)(-\d+|-reverse)?$/,
         /^divide-(solid|dashed|dotted|double|none)$/,
-        /^outline(-\d+|-none|-dashed|-dotted|-double)?$/,
+        /^outline(-\d+|-none|-dashed|-dotted|-double|-hidden)?$/, // Added -hidden for outline
         /^outline-offset-\d+$/,
         /^ring(-\d+|-inset)?$/,
         /^ring-offset-\d+$/,
@@ -917,9 +918,9 @@ module.exports = {
 
       const isMatch = tailwindPatterns.some(pattern => pattern.test(cleanClassName));
 
-      if (debug && (cleanClassName.includes('aspect-square') || cleanClassName.includes('bg-linear-to') || cleanClassName.includes('text-ellipsis') || cleanClassName.includes('border-b-divider'))) {
+      if (debug && (cleanClassName.includes('outline-hidden') || cleanClassName.includes('min-w-2/3'))) {
         console.log(`🔍 isTailwindUtility(${className} -> ${cleanClassName}): ${isMatch}`);
-        console.log(`  - Testing missing patterns`);
+        console.log(`  - Testing outline-hidden and min-w fraction patterns`);
       }
 
       return isMatch;
