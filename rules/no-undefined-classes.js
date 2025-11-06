@@ -712,6 +712,7 @@ module.exports = {
         /^flex-(grow|shrink)(-0)?$/, // flex-grow, flex-shrink, flex-grow-0, flex-shrink-0
         /^(items|justify|content|self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
         /^(place-content|place-items|place-self)-(start|end|center|stretch|between|around|evenly|baseline|auto)$/,
+        /^basis-(auto|full|0|px|\d+(\.\d+)?|\d+\/\d+)$/,
 
         // Logical Properties
         /^(m|p)(s|e|is|ie|bs|be)-(\d+\.?\d*|px|auto)$/,
