@@ -41,20 +41,45 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Check if already published
-        id: published
+      - name: Check publish status
+        id: status
         run: |
           CURRENT=$(node -p "require('./package.json').version")
           PUBLISHED=$(npm view eslint-plugin-tailwind-v4 versions --json 2>/dev/null || echo "[]")
           if echo "$PUBLISHED" | grep -q "\"${CURRENT}\""; then
-            echo "already=true" >> "$GITHUB_OUTPUT"
-            echo "v${CURRENT} is already on npm — skipping bump"
+            echo "state=published" >> "$GITHUB_OUTPUT"
+            echo "v${CURRENT} already on npm — nothing to do"
           else
-            echo "already=false" >> "$GITHUB_OUTPUT"
+            # Version in package.json is NOT on npm — check if it was already bumped
+            # (re-run after publish failure) or needs a new bump
+            TAG_EXISTS=$(git tag -l "v${CURRENT}")
+            if [ -n "$TAG_EXISTS" ]; then
+              echo "state=publish-only" >> "$GITHUB_OUTPUT"
+              echo "v${CURRENT} bumped but not published — will publish only"
+              echo "tag=v${CURRENT}" >> "$GITHUB_OUTPUT"
+            else
+              echo "state=needs-bump" >> "$GITHUB_OUTPUT"
+              echo "Needs version bump + publish"
+            fi
           fi
 
+      # ── Path A: Version already bumped, just publish ──────────────
+      - name: Publish unpublished version
+        if: steps.status.outputs.state == 'publish-only'
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release (re-run)
+        if: steps.status.outputs.state == 'publish-only'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.status.outputs.tag }}
+          generate_release_notes: true
+
+      # ── Path B: Full bump → push → publish flow ───────────────────
       - name: Determine version bump
-        if: steps.published.outputs.already != 'true'
+        if: steps.status.outputs.state == 'needs-bump'
         id: bump
         run: |
           # Get commits since last tag
@@ -88,13 +113,16 @@ jobs:
           echo "Determined bump: $BUMP"
 
       - name: Bump version
-        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
+        if: steps.status.outputs.state == 'needs-bump' && steps.bump.outputs.skip != 'true'
         id: version
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Calculate the expected new version and clean up stale tags
+          # Pull latest to avoid non-fast-forward errors
+          git pull --rebase origin main
+
+          # Clean up stale tags
           BUMP_TYPE="${{ steps.bump.outputs.type }}"
           CURRENT=$(node -p "require('./package.json').version")
           NEXT=$(node -e "
@@ -103,7 +131,6 @@ jobs:
             else if ('${BUMP_TYPE}'==='minor') console.log(M+'.'+(m+1)+'.0');
             else console.log(M+'.'+m+'.'+(p+1));
           ")
-          # Remove stale local tag if it exists (from a previous failed run)
           git tag -d "v${NEXT}" 2>/dev/null || true
 
           NEW_VERSION=$(npm version $BUMP_TYPE -m "chore(release): v%s")
@@ -111,19 +138,19 @@ jobs:
           echo "New version: $NEW_VERSION"
 
       - name: Push version commit and tag
-        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
+        if: steps.status.outputs.state == 'needs-bump' && steps.bump.outputs.skip != 'true'
         run: |
           git push
           git push --tags
 
       - name: Publish to npm
-        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
+        if: steps.status.outputs.state == 'needs-bump' && steps.bump.outputs.skip != 'true'
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
+        if: steps.status.outputs.state == 'needs-bump' && steps.bump.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
