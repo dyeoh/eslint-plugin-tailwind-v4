@@ -1,0 +1,9 @@
+# Dev / CI files
+.github/
+tests/
+.gitignore
+.npmignore
+coverage/
+.nyc_output/
+*.log
+.DS_Store

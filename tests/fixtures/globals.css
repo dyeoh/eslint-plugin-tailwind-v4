@@ -1,0 +1,40 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #3490dc;
+  --color-secondary: #ffed4a;
+  --color-danger: #e3342f;
+  --color-brand-blue: #1a73e8;
+  --animate-fadeIn: fadeIn 0.3s ease-in;
+  --shadow-soft: 0 2px 4px rgba(0,0,0,0.1);
+  --radius-lg: 0.5rem;
+  --spacing-18: 4.5rem;
+  --font-size-xxl: 1.75rem;
+  --font-family-display: "Inter", sans-serif;
+  --font-weight-medium: 500;
+}
+
+@utility container-sm {
+  max-width: 640px;
+  margin-inline: auto;
+}
+
+@utility btn-primary {
+  background-color: var(--color-primary);
+  color: white;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+}
+
+@layer components {
+  .card {
+    background: white;
+    border-radius: 0.5rem;
+    padding: 1rem;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+  }
+}
