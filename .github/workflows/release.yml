@@ -41,7 +41,20 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Check if already published
+        id: published
+        run: |
+          CURRENT=$(node -p "require('./package.json').version")
+          PUBLISHED=$(npm view eslint-plugin-tailwind-v4 versions --json 2>/dev/null || echo "[]")
+          if echo "$PUBLISHED" | grep -q "\"${CURRENT}\""; then
+            echo "already=true" >> "$GITHUB_OUTPUT"
+            echo "v${CURRENT} is already on npm — skipping bump"
+          else
+            echo "already=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Determine version bump
+        if: steps.published.outputs.already != 'true'
         id: bump
         run: |
           # Get commits since last tag
@@ -52,7 +65,10 @@ jobs:
             COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"%s" --no-merges)
           fi
 
-          # Skip if no commits since last tag
+          # Filter out release commits
+          COMMITS=$(echo "$COMMITS" | grep -v "^chore(release):" || true)
+
+          # Skip if no meaningful commits since last tag
           if [ -z "$COMMITS" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -72,27 +88,42 @@ jobs:
           echo "Determined bump: $BUMP"
 
       - name: Bump version
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
         id: version
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          NEW_VERSION=$(npm version ${{ steps.bump.outputs.type }} -m "chore(release): v%s")
+
+          # Calculate the expected new version and clean up stale tags
+          BUMP_TYPE="${{ steps.bump.outputs.type }}"
+          CURRENT=$(node -p "require('./package.json').version")
+          NEXT=$(node -e "
+            const [M,m,p] = '${CURRENT}'.split('.').map(Number);
+            if ('${BUMP_TYPE}'==='major') console.log(M+1+'.0.0');
+            else if ('${BUMP_TYPE}'==='minor') console.log(M+'.'+(m+1)+'.0');
+            else console.log(M+'.'+m+'.'+(p+1));
+          ")
+          # Remove stale local tag if it exists (from a previous failed run)
+          git tag -d "v${NEXT}" 2>/dev/null || true
+
+          NEW_VERSION=$(npm version $BUMP_TYPE -m "chore(release): v%s")
           echo "tag=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "New version: $NEW_VERSION"
 
       - name: Push version commit and tag
-        if: steps.bump.outputs.skip != 'true'
-        run: git push && git push --tags
+        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
+        run: |
+          git push
+          git push --tags
 
       - name: Publish to npm
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Create GitHub Release
-        if: steps.bump.outputs.skip != 'true'
+        if: steps.published.outputs.already != 'true' && steps.bump.outputs.skip != 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
