@@ -3,7 +3,9 @@
   "version": "1.0.15",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node tests/plugin-structure.test.js && node tests/lib.test.js && node tests/no-undefined-classes.test.js",
+    "test:ci": "node tests/plugin-structure.test.js && node tests/lib.test.js && node tests/no-undefined-classes.test.js",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "eslint",
@@ -30,9 +32,13 @@
   },
   "files": [
     "index.js",
-    "rules/"
+    "rules/",
+    "lib/"
   ],
   "peerDependencies": {
     "eslint": ">=8.0.0"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1"
   }
 }
